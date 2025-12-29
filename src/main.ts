@@ -1,7 +1,8 @@
 
 import { initializeApp } from "firebase/app";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, FacebookAuthProvider, TwitterAuthProvider, GithubAuthProvider, OAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { setupMultiProviderAuth } from "./authSetup";
 import { getFirestore, collection, addDoc, getDocs, query, where, doc, deleteDoc } from "firebase/firestore";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import "./style.css";
@@ -114,19 +115,75 @@ let marker: google.maps.Marker;
 
 // --- AUTHENTICATION ---
 
-const provider = new GoogleAuthProvider();
+// Create all providers
+const googleProvider = new GoogleAuthProvider();
+const facebookProvider = new FacebookAuthProvider();
+const twitterProvider = new TwitterAuthProvider();
+const githubProvider = new GithubAuthProvider();
+const appleProvider = new OAuthProvider('apple.com');
 
-async function signIn() {
+// Multi-provider sign in
+async function signInWithProvider(provider: any, providerName: string) {
   if (!auth) {
     alert('Firebase authentication is not configured. Please check your .env.local file.');
     return;
   }
   try {
     await signInWithPopup(auth, provider);
-  } catch (error) {
-    console.error("Error signing in: ", error);
-    alert('Sign in failed. Please check your Firebase configuration.');
+    console.log(`Signed in with ${providerName}`);
+  } catch (error: any) {
+    console.error(`Error signing in with ${providerName}:`, error);
+    alert(`Sign in with ${providerName} failed: ${error.message}`);
   }
+}
+
+// Email/Password sign in
+async function signInWithEmail() {
+  if (!auth) {
+    alert('Firebase authentication is not configured.');
+    return;
+  }
+  const email = (document.getElementById('email-input') as HTMLInputElement)?.value;
+  const password = (document.getElementById('password-input') as HTMLInputElement)?.value;
+  
+  if (!email || !password) {
+    alert('Please enter email and password');
+    return;
+  }
+  
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch (error: any) {
+    console.error('Email sign-in failed:', error);
+    alert(`Sign in failed: ${error.message}`);
+  }
+}
+
+// Email/Password sign up
+async function signUpWithEmail() {
+  if (!auth) {
+    alert('Firebase authentication is not configured.');
+    return;
+  }
+  const email = (document.getElementById('email-input') as HTMLInputElement)?.value;
+  const password = (document.getElementById('password-input') as HTMLInputElement)?.value;
+  
+  if (!email || !password) {
+    alert('Please enter email and password');
+    return;
+  }
+  
+  try {
+    await createUserWithEmailAndPassword(auth, email, password);
+  } catch (error: any) {
+    console.error('Email sign-up failed:', error);
+    alert(`Sign up failed: ${error.message}`);
+  }
+}
+
+// Legacy function for backward compatibility
+async function signIn() {
+  await signInWithProvider(googleProvider, 'Google');
 }
 
 async function doSignOut() {
@@ -144,13 +201,19 @@ if (auth) {
 onAuthStateChanged(auth, (user) => {
   if (user) {
     // User is signed in
-    if(userInfoDiv) userInfoDiv.innerHTML = `Welcome, ${user.displayName}!`;
+    if(userInfoDiv) userInfoDiv.innerHTML = `Welcome, ${user.displayName || user.email}!`;
+    // Hide all auth buttons
+    document.getElementById('auth-buttons')?.setAttribute('style', 'display: none;');
+    document.getElementById('email-auth')?.setAttribute('style', 'display: none;');
     if(signInButton) signInButton.style.display = 'none';
     if(signOutButton) signOutButton.style.display = 'block';
-      if (db) loadTodos(user);
+    if (db) loadTodos(user);
   } else {
     // User is signed out
     if(userInfoDiv) userInfoDiv.innerHTML = '';
+    // Show all auth buttons
+    document.getElementById('auth-buttons')?.setAttribute('style', 'display: block;');
+    document.getElementById('email-auth')?.setAttribute('style', 'display: block; margin-top: 1em;');
     if(signInButton) signInButton.style.display = 'block';
     if(signOutButton) signOutButton.style.display = 'none';
   }
@@ -1093,6 +1156,16 @@ function displayImmigrationInfo(info: any) {
 document.addEventListener('DOMContentLoaded', () => {
     // Attach authentication listeners
     if(signInButton) signInButton.addEventListener('click', signIn);
+    
+    // Multi-provider auth buttons
+    document.getElementById('sign-in-google')?.addEventListener('click', () => signInWithProvider(googleProvider, 'Google'));
+    document.getElementById('sign-in-apple')?.addEventListener('click', () => signInWithProvider(appleProvider, 'Apple'));
+    document.getElementById('sign-in-facebook')?.addEventListener('click', () => signInWithProvider(facebookProvider, 'Facebook'));
+    document.getElementById('sign-in-twitter')?.addEventListener('click', () => signInWithProvider(twitterProvider, 'Twitter'));
+    document.getElementById('sign-in-github')?.addEventListener('click', () => signInWithProvider(githubProvider, 'GitHub'));
+    document.getElementById('sign-in-email')?.addEventListener('click', signInWithEmail);
+    document.getElementById('sign-up-email')?.addEventListener('click', signUpWithEmail);
+    
     if(signOutButton) signOutButton.addEventListener('click', doSignOut);
     
     // Setup media selection

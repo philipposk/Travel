@@ -9,7 +9,20 @@
   <body>
     <div id="app">
       <div id="auth-container">
-        <button id="sign-in-button">Sign in with Google</button>
+        <div id="auth-buttons">
+          <button id="sign-in-google" class="auth-btn google">Sign in with Google</button>
+          <button id="sign-in-apple" class="auth-btn apple">Sign in with Apple</button>
+          <button id="sign-in-facebook" class="auth-btn facebook">Sign in with Facebook</button>
+          <button id="sign-in-twitter" class="auth-btn twitter">Sign in with Twitter</button>
+          <button id="sign-in-github" class="auth-btn github">Sign in with GitHub</button>
+        </div>
+        <div id="email-auth" style="margin-top: 1em;">
+          <h4>Or sign in with Email</h4>
+          <input type="email" id="email-input" placeholder="Email" />
+          <input type="password" id="password-input" placeholder="Password" />
+          <button id="sign-in-email">Sign In</button>
+          <button id="sign-up-email">Sign Up</button>
+        </div>
         <div id="user-info"></div>
         <button id="sign-out-button" style="display: none;">Sign Out</button>
       </div>

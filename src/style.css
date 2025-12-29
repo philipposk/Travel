@@ -48,6 +48,78 @@ h2, h3 {
   background: #4285f4;
   color: white;
   border: none;
+}
+
+/* Multi-provider auth buttons */
+.auth-btn {
+  padding: 12px 24px;
+  margin: 8px;
+  font-size: 16px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s;
+  font-weight: 500;
+}
+
+.auth-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.auth-btn.google {
+  background-color: #4285f4;
+  color: white;
+}
+
+.auth-btn.apple {
+  background-color: #000000;
+  color: white;
+}
+
+.auth-btn.facebook {
+  background-color: #1877f2;
+  color: white;
+}
+
+.auth-btn.twitter {
+  background-color: #1da1f2;
+  color: white;
+}
+
+.auth-btn.github {
+  background-color: #24292e;
+  color: white;
+}
+
+#email-auth {
+  border-top: 1px solid #e0e0e0;
+  padding-top: 1em;
+  margin-top: 1em;
+}
+
+#email-auth input {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  padding: 10px;
+  margin: 8px 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+#email-auth button {
+  padding: 10px 20px;
+  margin: 8px 8px 8px 0;
+  background-color: #34a853;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
   padding: 0.75em 1.5em;
   border-radius: 8px;
   cursor: pointer;
