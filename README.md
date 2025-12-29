@@ -1,49 +1,116 @@
-# Using the Gemini API and Google Maps Platform with TypeScript
+# AI Travel Assistant - Complete Travel Platform
 
-**AI-powered comprehensive travel platform that helps you discover destinations, compare booking prices, navigate airports, and connect with a travel community.**
-**Features include intelligent location identification from images, multi-source price comparison, real-time airport navigation, visa information, translation services, and social media content creation for your travels.**
+An AI-powered comprehensive travel platform that helps you discover destinations, compare booking prices, navigate airports, and connect with a travel community.
 
-## Prerequisites
+## 🌟 Features
 
-### Gemini API
+### Core Features
+- **Intelligent Location Identification**: Upload images to identify travel destinations using AI
+- **Multi-Source Booking**: Compare prices from 44+ APIs (flights, hotels, buses, trains, experiences)
+- **Real-Time Airport Navigation**: Gate info, wait times, walking directions, alerts
+- **AI Assistant**: Unified assistant for navigation and travel questions
+- **Travel Intelligence**: Local tips, scams, cultural info, SIM cards, currency
+- **Translation Services**: AI-powered translation with pronunciation
+- **Immigration & Visas**: Official visa information and requirements
+- **Social Media Content Creation**: Generate travel content for social media
+- **Community Features**: Forums, reviews, messaging
 
-In order for the Gemini API features to work, you'll need to add a Gemini API key as a local variable.
+### Advanced Features
+- **Real-Time Notifications**: WhatsApp, Telegram, SMS, Email updates
+- **Airport Alerts**: Delays, weather, security, protests
+- **Journey Timeline**: Step-by-step airport journey with auto-refresh
+- **Community Editing**: User-contributed airport information
+- **Accessibility Support**: Wheelchair booking, accessible routes
+- **Lounge Information**: Access and upgrade options
 
-1. Open the Firebase Studio view by pressing Ctrl+Shift+P / Cmd+Shift+P and type "IDX focus", then select "IDX: Focus on Firebase Studio View"
-2. Click on the "Gemini API" integration and authenticate.
-3. Click "Get API Key" to get an API key.
-4. Create or open a file named .env.local in the root directory. The .local suffix keeps secrets out of source control.
-5. In the file, add the line: VITE_GEMINI_API_KEY=YOUR_API_KEY.
-6. Replace YOUR_API_KEY with the API key you got in step 3.
+## 🚀 Quick Start
 
-### Google Maps Platform, Maps JavaScript API
+### Prerequisites
+- Node.js 18+ and npm
+- Firebase account (for backend features)
+- API keys (see setup below)
 
-In order for the Maps JavaScript API features to work, you'll need to add a Google Maps Platform API key as a local variable.
+### Installation
 
-1. Open the Firebase Studio view by pressing Ctrl+Shift+P / Cmd+Shift+P and type "IDX focus", then select "IDX: Focus on Firebase Studio View"
-2. Click on the "Google Maps Platform" integration.
-3. Click "Enable APIs" to enable the Google Maps Platform APIs.
-4. Click "Get API Key" to get an API key.
-5. Create or open the file named .env.local in the root directory. The .local suffix keeps secrets out of source control.
-6. In the file, add the line: VITE_MAPS_API_KEY=YOUR_API_KEY.
-7. Replace YOUR_API_KEY with the API key you got in step 4.
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/philipposk/Travel.git
+   cd Travel
+   ```
 
-## Google Maps Platform Code Assist MCP
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
 
-This template comes pre-configured with the [Google Maps Platform Code Assist MCP](https://github.com/googlemaps/platform-ai/tree/main/packages/code-assist) server. This tool makes your Gemini AI assistant in Firebase Studio an expert on Google Maps Platform, allowing it to generate code and answer questions based on the latest official documentation and code samples.
+3. **Set up environment variables**:
+   Create `.env.local` file:
+   ```env
+   VITE_GEMINI_API_KEY=your-gemini-key
+   VITE_MAPS_API_KEY=your-maps-key
+   VITE_FIREBASE_API_KEY=your-firebase-key
+   VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=your-project-id
+   VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+   VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+   VITE_FIREBASE_APP_ID=your-app-id
+   ```
 
-## Features
+4. **Run development server**:
+   ```bash
+   npm run dev
+   ```
 
-Most of the code powering the features of this sample are in the `src/main.ts` file.
+5. **Build for production**:
+   ```bash
+   npm run build
+   ```
 
-### Gemini API
+## 📚 Documentation
 
-- Image + text prompt: When the user selects an image and presses the "Where can I see this?" button, that image and a text prompt are sent to the Gemini API.
-- Text-only prompt: The Gemini API is used to augment and refine the draft review of a destination.
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Deployment guide (Firebase, Vercel, Netlify)
+- **[ALL_APIS.md](./ALL_APIS.md)** - Complete list of 44+ integrated APIs
+- **[API_SETUP.md](./API_SETUP.md)** - How to get and configure API keys
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** - System architecture explanation
+- **[AIRPORT_NAVIGATION_FEATURE.md](./AIRPORT_NAVIGATION_FEATURE.md)** - Airport navigation feature details
+- **[ADVANCED_FEATURES.md](./ADVANCED_FEATURES.md)** - Advanced features guide
 
-### Google Maps Platform, Maps JavaScript API
+## 🛠️ Tech Stack
 
-- [Photorealistic 3D map (Experimental)](https://developers.google.com/maps/documentation/javascript/3d-maps-overview) in the Maps JavaScript API
-- [Geocoding Service](https://developers.google.com/maps/documentation/javascript/geocoding), Maps JavaScript API
-- [Nearby Search (New) in the Places Library](https://developers.google.com/maps/documentation/javascript/nearby-search), Maps JavaScript API
-- [Extended Component Library (beta)](https://developers.google.com/maps/documentation/javascript/libraries-open-source#web-components) for the Maps JavaScript API providing the split layout and the Place Overview components.
+- **Frontend**: TypeScript, Vite, HTML/CSS
+- **Backend**: Firebase (Firestore, Functions, Auth)
+- **AI**: Google Gemini API
+- **Maps**: Google Maps Platform
+- **APIs**: 44+ travel APIs integrated
+
+## 📋 What's Left to Do
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete checklist. Key items:
+
+1. **Add API Keys** - Get keys from providers (see ALL_APIS.md)
+2. **Firebase Setup** - Create project and enable services
+3. **Wire Up UI** - Connect event listeners for new features
+4. **Deploy** - Choose deployment platform (Firebase recommended)
+
+## 🔐 Security
+
+- Never commit `.env.local` or `.env.production`
+- All secrets stored in environment variables
+- Firebase Security Rules configured
+- API keys secured
+
+## 📄 License
+
+MIT License - see [LICENSE](./LICENSE) file
+
+## 🤝 Contributing
+
+Contributions welcome! Please read contributing guidelines before submitting PRs.
+
+## 📞 Support
+
+For issues and questions, please open an issue on GitHub.
+
+---
+
+Built with ❤️ for travelers worldwide
