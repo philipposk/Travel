@@ -207,6 +207,8 @@
   .msg.err{background:#f6e3da;color:#7d3514;border:1px solid #e3b9a6;align-self:flex-start;border-bottom-left-radius:4px}
   .phrase-preset{cursor:pointer;transition:background .15s ease}
   .phrase-preset:hover{background:var(--clay);color:#fff}
+  .recent-chip{cursor:pointer;font:inherit;font-size:13px;transition:background .15s ease,color .15s ease}
+  .recent-chip:hover{background:var(--clay);color:#fff}
   .copy-btn{cursor:pointer;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;color:var(--ink)}
   .copy-btn:hover{border-color:var(--clay);color:var(--clay)}
   .chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px}
@@ -624,6 +626,16 @@
         <div class="meta"><span>Gemini · Geoapify · Climatiq</span><span class="arr"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg></span></div>
       </button>
     </div>
+  </div>
+</section>
+
+<section class="trips" id="recentSection" style="display:none">
+  <div class="shell">
+    <div class="section-head">
+      <h3>Recently identified.</h3>
+      <button class="btn ghost sm" id="clearRecent">Clear</button>
+    </div>
+    <div class="row-actions" id="recentStrip" style="gap:8px;flex-wrap:wrap"></div>
   </div>
 </section>
 

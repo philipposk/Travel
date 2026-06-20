@@ -405,6 +405,49 @@ function paintIdentify(r: IdentifyResult) {
   $("#mapSub")!.textContent = `${r.city || r.country}`;
   $("#stampCount")!.textContent = "Identified · ready to plan";
   paintMap(r.lat, r.lon, r.name);
+  pushRecent(r);
+}
+
+// ── Recent identifications (localStorage, works without sign-in) ─────────────
+const RECENT_KEY = "atlas.recent";
+function loadRecent(): IdentifyResult[] {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { return []; }
+}
+function pushRecent(r: IdentifyResult) {
+  try {
+    const list = loadRecent().filter((x) => x.name !== r.name);
+    list.unshift(r);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 8)));
+  } catch { /* storage full / disabled — non-fatal */ }
+  renderRecent();
+}
+function initRecent() {
+  $("#clearRecent")?.addEventListener("click", () => {
+    try { localStorage.removeItem(RECENT_KEY); } catch { /* noop */ }
+    renderRecent();
+  });
+  renderRecent();
+}
+function renderRecent() {
+  const section = $("#recentSection");
+  const strip = $("#recentStrip");
+  if (!section || !strip) return;
+  const list = loadRecent();
+  if (!list.length) { section.style.display = "none"; return; }
+  section.style.display = "";
+  strip.innerHTML = list.map((r, i) =>
+    `<button class="pill recent-chip" data-recent="${i}">${esc(r.shortMatch || r.name)}</button>`
+  ).join("");
+  strip.querySelectorAll<HTMLButtonElement>("[data-recent]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const r = loadRecent()[Number(b.dataset.recent)];
+      if (!r) return;
+      paintIdentify(r);
+      loadIntelAndPaint(r);
+      const result = $("#result"); result?.classList.add("is-open");
+      setTimeout(() => result && window.scrollTo({ top: result.offsetTop - 56, behavior: "smooth" }), 40);
+    })
+  );
 }
 
 // Swap the decorative map placeholder for a real, keyless OpenStreetMap embed
@@ -2236,6 +2279,26 @@ async function promptInstall() {
   if (item) item.style.display = "none";
 }
 
+// Global keyboard shortcuts. Ignored while typing in a field.
+function initShortcuts() {
+  document.addEventListener("keydown", (e) => {
+    const t = e.target as HTMLElement;
+    const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    if (e.key === "Escape") {
+      // Close any open sheet / dialog / menu / assistant.
+      $$(".sheet-backdrop.is-open").forEach((s) => s.classList.remove("is-open"));
+      $(".modal-backdrop.is-open")?.classList.remove("is-open");
+      $(".ui-dialog-overlay")?.remove();
+      $("#assistPanel")?.classList.remove("is-open");
+      closeToolsMenu();
+      return;
+    }
+    if (typing) return;
+    if (e.key === "/") { e.preventDefault(); ($("#searchInput") as HTMLInputElement | null)?.focus(); }
+    else if (e.key.toLowerCase() === "a") { $("#assistPanel")?.classList.toggle("is-open"); }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initRouter();
   initIdentify();
@@ -2253,6 +2316,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initToolsMenu();
   initSheetClosers();
   initTripTabs();
+  initRecent();
+  initShortcuts();
   if (!functionsReady) {
     const badge = $("#heroBadge");
     if (badge) badge.textContent = "Demo mode · backend not configured";
