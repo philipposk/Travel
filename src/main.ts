@@ -286,6 +286,8 @@ function handleAction(action: string) {
     openSheet("fxSheet"); initFxOnce();
   } else if (action === "open-inbox") {
     openSheet("inboxSheet"); refreshInbox();
+  } else if (action === "install-app") {
+    promptInstall();
   } else if (action === "open-about") {
     uiDialog({
       title: "About Atlas",
@@ -1546,6 +1548,11 @@ function appendMsg(role: "you" | "bot", text: string) {
   return el;
 }
 
+function markMsgError(el: HTMLElement, text: string) {
+  el.classList.add("err");
+  el.textContent = `⚠ ${text}`;
+}
+
 function initAssistant() {
   const panel = $("#assistPanel")!;
   $("#assistantBtn")!.addEventListener("click", () => panel.classList.toggle("is-open"));
@@ -1565,7 +1572,6 @@ function initAssistant() {
     if (!v) return;
     input.value = "";
     appendMsg("you", v);
-    chatHistory.push({ role: "user", text: v });
     const thinking = appendMsg("bot", "…");
     try {
       const context = currentIdentified
@@ -1576,14 +1582,18 @@ function initAssistant() {
             countryCode: currentIdentified.countryCode,
           }
         : undefined;
+      // Send the existing (complete, alternating) history + this message. Only
+      // commit the user+model pair to history on success, so a failed turn
+      // doesn't leave a dangling user message that breaks the next request.
       const r = await call<{ history: ChatMsg[]; message: string; context: unknown }, { reply: string }>(
         "chatWithAssistant",
-        { history: chatHistory.slice(0, -1), message: v, context }
+        { history: chatHistory.slice(), message: v, context }
       );
       thinking.textContent = r.reply;
+      chatHistory.push({ role: "user", text: v });
       chatHistory.push({ role: "model", text: r.reply });
     } catch (err) {
-      thinking.textContent = `(${(err as Error).message})`;
+      markMsgError(thinking, (err as Error).message);
     }
   });
 }
@@ -2171,6 +2181,36 @@ function initSheetClosers() {
       if (e.target === bd) bd.classList.remove("is-open");
     });
   });
+}
+
+// ── PWA install ──────────────────────────────────────────────────────────────
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+let deferredInstall: BeforeInstallPromptEvent | null = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  // Stash the event so we can trigger the native install flow from our own menu
+  // item instead of the browser's default mini-infobar.
+  e.preventDefault();
+  deferredInstall = e as BeforeInstallPromptEvent;
+  const item = $("#installAppItem");
+  if (item) item.style.display = "block";
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstall = null;
+  const item = $("#installAppItem");
+  if (item) item.style.display = "none";
+  toast("Atlas installed", "ok");
+});
+async function promptInstall() {
+  if (!deferredInstall) { toast("Already installed, or your browser handles install from its menu.", "info"); return; }
+  await deferredInstall.prompt();
+  const choice = await deferredInstall.userChoice;
+  if (choice.outcome === "accepted") toast("Installing…", "ok");
+  deferredInstall = null;
+  const item = $("#installAppItem");
+  if (item) item.style.display = "none";
 }
 
 document.addEventListener("DOMContentLoaded", () => {

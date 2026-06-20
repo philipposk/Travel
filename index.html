@@ -204,6 +204,7 @@
   .msg{max-width:80%;padding:10px 12px;border-radius:14px;font-size:14px;line-height:1.5;white-space:pre-wrap}
   .msg.bot{background:var(--bg-2);align-self:flex-start;border-bottom-left-radius:4px}
   .msg.you{background:var(--ink);color:var(--paper);align-self:flex-end;border-bottom-right-radius:4px}
+  .msg.err{background:#f6e3da;color:#7d3514;border:1px solid #e3b9a6;align-self:flex-start;border-bottom-left-radius:4px}
   .chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px}
   .chip{font-size:12px;padding:6px 10px;border-radius:999px;background:var(--bg-2);border:1px solid var(--line);color:var(--ink-2);cursor:pointer}
   .chip:hover{border-color:var(--line-2);background:var(--paper)}
@@ -317,6 +318,7 @@
         <a role="menuitem" tabindex="-1" href="#" data-action="open-fx" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Currency converter</a>
         <a role="menuitem" tabindex="-1" href="#" data-action="open-vault" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Document vault</a>
         <a role="menuitem" tabindex="-1" href="#" data-action="open-inbox" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Imported bookings</a>
+        <a role="menuitem" tabindex="-1" href="#" data-action="install-app" id="installAppItem" style="display:none;padding:8px 10px;border-radius:8px;cursor:pointer;border-top:1px solid var(--line);margin-top:4px;color:var(--clay);font-weight:600">Install app</a>
       </div>
       <button class="btn ghost sm" id="signInBtn">Sign in</button>
       <button class="btn sm" id="signedInMenu" style="display:none"><span id="userInitial">·</span></button>
