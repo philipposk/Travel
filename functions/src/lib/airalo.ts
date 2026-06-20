@@ -11,7 +11,12 @@ async function getAiraloToken(clientId: string, clientSecret: string): Promise<s
   const res = await fetch(`${AIRALO_BASE}/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}`,
+    // URL-encode credentials so reserved characters don't corrupt the body.
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+    }).toString(),
   });
   if (!res.ok) throw new Error(`Airalo auth ${res.status}: ${await res.text()}`);
   const j = (await res.json()) as { data: { access_token: string; expires_in: number } };

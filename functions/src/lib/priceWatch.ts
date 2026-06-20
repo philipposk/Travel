@@ -40,11 +40,13 @@ export interface PriceCheckResult {
 }
 
 export function evaluatePriceCheck(watch: PriceWatch, newPrice: number, source: string): PriceCheckResult {
-  const delta = watch.lastPrice ? newPrice - watch.lastPrice : 0;
+  // Use typeof checks, not truthiness: a legitimate previous price of 0
+  // (free/award fare) must still count as a baseline.
+  const delta = typeof watch.lastPrice === "number" ? newPrice - watch.lastPrice : 0;
   const triggered =
     typeof watch.threshold === "number" && newPrice <= watch.threshold;
   const isNewLow =
-    !watch.lowestPrice || newPrice < watch.lowestPrice;
+    typeof watch.lowestPrice !== "number" || newPrice < watch.lowestPrice;
   return { watchId: watch.id, newPrice, source, triggered, isNewLow, delta };
 }
 

@@ -86,20 +86,26 @@ export async function aqicnByGeo(token: string, lat: number, lon: number): Promi
   const res = await fetch(`https://api.waqi.info/feed/geo:${lat};${lon}/?token=${token}`);
   if (!res.ok) return null;
   const j = await res.json();
-  if (j.status !== "ok") return null;
-  const aqi = j.data.aqi;
+  if (j.status !== "ok" || !j.data) return null;
+  // Stations with no current reading return aqi as "-" (a string); reject those
+  // rather than letting a non-numeric value flow into comparisons and the UI.
+  const aqi = Number(j.data.aqi);
+  if (!Number.isFinite(aqi)) return null;
   const level = aqi <= 50 ? "good" : aqi <= 100 ? "moderate" : aqi <= 150 ? "unhealthy for sensitive" : aqi <= 200 ? "unhealthy" : aqi <= 300 ? "very unhealthy" : "hazardous";
-  return { aqi, level, pollutant: j.data.dominentpol, updatedAt: j.data.time?.iso };
+  return { aqi, level, pollutant: j.data.dominentpol || "", updatedAt: j.data.time?.iso || "" };
 }
 
 // ── Frankfurter: FX rates, no key ─────────────────────────────────────────
 export async function fxRate(from: string, to: string, amount = 1): Promise<{ rate: number; converted: number } | null> {
-  const res = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}&amount=${amount}`);
+  // Fetch the unit rate, then multiply — avoids dividing by a zero/blank amount
+  // (which would yield Infinity/NaN for the per-unit rate).
+  const qty = Number(amount) > 0 ? Number(amount) : 1;
+  const res = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`);
   if (!res.ok) return null;
   const j = await res.json();
-  const converted = j.rates?.[to];
-  if (typeof converted !== "number") return null;
-  return { rate: converted / amount, converted };
+  const rate = j.rates?.[to];
+  if (typeof rate !== "number") return null;
+  return { rate, converted: rate * qty };
 }
 
 // ── Nager.Date: public holidays, no key ───────────────────────────────────
@@ -172,7 +178,9 @@ export async function carbonFlight(
   });
   if (!res.ok) return null;
   const j = await res.json();
-  return { co2Kg: j.co2e ?? j.total_co2e };
+  const co2 = Number(j.co2e ?? j.total_co2e ?? j.co2e_total);
+  if (!Number.isFinite(co2)) return null;
+  return { co2Kg: co2 };
 }
 
 // ── Wikivoyage: destination guide via MediaWiki API ───────────────────────

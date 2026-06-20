@@ -72,16 +72,34 @@ export function computeBalances(members: GroupMember[], expenses: Expense[]): Ba
 function resolveShares(e: Expense): Map<string, number> {
   const out = new Map<string, number>();
   const total = e.amountBaseCurrency;
+  const splits = e.splits || [];
+  if (!splits.length) return out; // nothing to split → no debt (avoids /0 → NaN)
+
   if (e.splitMethod === "equal") {
-    const each = total / e.splits.length;
-    for (const s of e.splits) out.set(s.uid, each);
+    const each = total / splits.length;
+    for (const s of splits) out.set(s.uid, each);
   } else if (e.splitMethod === "percent") {
-    for (const s of e.splits) out.set(s.uid, total * (s.share / 100));
+    for (const s of splits) out.set(s.uid, total * (s.share / 100));
   } else if (e.splitMethod === "shares") {
-    const sum = e.splits.reduce((x, y) => x + y.share, 0) || 1;
-    for (const s of e.splits) out.set(s.uid, total * (s.share / sum));
+    const sum = splits.reduce((x, y) => x + y.share, 0);
+    // A non-positive share sum is invalid; fall back to an equal split rather
+    // than dumping the whole amount on the first member (the old `|| 1` bug).
+    if (sum > 0) {
+      for (const s of splits) out.set(s.uid, total * (s.share / sum));
+    } else {
+      const each = total / splits.length;
+      for (const s of splits) out.set(s.uid, each);
+    }
   } else if (e.splitMethod === "exact") {
-    for (const s of e.splits) out.set(s.uid, s.share);
+    // Exact amounts may not sum to the expense total; scale them so balances
+    // still net to zero and settlements reconcile.
+    const sum = splits.reduce((x, y) => x + y.share, 0);
+    if (sum > 0 && Math.abs(sum - total) > 0.005) {
+      const k = total / sum;
+      for (const s of splits) out.set(s.uid, s.share * k);
+    } else {
+      for (const s of splits) out.set(s.uid, s.share);
+    }
   }
   return out;
 }

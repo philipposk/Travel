@@ -4,20 +4,37 @@
 const AMADEUS_BASE = "https://test.api.amadeus.com";
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
+// Cache the in-flight request, not just the resolved token, so concurrent
+// flight+hotel+car calls share one token fetch instead of racing (and
+// potentially clobbering the cache with a stale token).
+let inFlightToken: Promise<string> | null = null;
 
 async function getAmadeusToken(clientId: string, clientSecret: string): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
     return cachedToken.token;
   }
-  const res = await fetch(`${AMADEUS_BASE}/v1/security/oauth2/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}`,
-  });
-  if (!res.ok) throw new Error(`Amadeus auth ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as { access_token: string; expires_in: number };
-  cachedToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
-  return data.access_token;
+  if (inFlightToken) return inFlightToken;
+  inFlightToken = (async () => {
+    try {
+      const res = await fetch(`${AMADEUS_BASE}/v1/security/oauth2/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        // URL-encode credentials so secrets containing +, &, =, / don't corrupt the body.
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: clientId,
+          client_secret: clientSecret,
+        }).toString(),
+      });
+      if (!res.ok) throw new Error(`Amadeus auth ${res.status}: ${await res.text()}`);
+      const data = (await res.json()) as { access_token: string; expires_in: number };
+      cachedToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+      return data.access_token;
+    } finally {
+      inFlightToken = null;
+    }
+  })();
+  return inFlightToken;
 }
 
 export interface AmadeusFlightOffer {
@@ -112,5 +129,5 @@ export async function searchAmadeusCars(
   url.searchParams.set("endDateTime", `${dropoffDate}T10:00:00`);
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) return [];
-  return (await res.json()).data || [];
+  return ((await res.json()) as { data?: unknown[] })?.data || [];
 }

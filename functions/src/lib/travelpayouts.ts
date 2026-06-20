@@ -37,10 +37,15 @@ export async function searchTravelpayoutsFlights(
   const res = await fetch(url);
   if (!res.ok) return [];
   const j = (await res.json()) as { data: TPFlight[] };
-  return (j.data || []).map((f) => ({
-    ...f,
-    link: `https://www.aviasales.com${f.link}?marker=${marker}`,
-  }));
+  return (j.data || []).map((f) => {
+    // The API usually returns a path ("/search/..."); only prefix the host when
+    // it isn't already an absolute URL, otherwise we'd build a broken link.
+    const sep = f.link?.includes("?") ? "&" : "?";
+    const link = /^https?:\/\//i.test(f.link || "")
+      ? `${f.link}${sep}marker=${marker}`
+      : `https://www.aviasales.com${f.link || ""}${sep}marker=${marker}`;
+    return { ...f, link };
+  });
 }
 
 export interface TPHotel {

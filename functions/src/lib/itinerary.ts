@@ -77,9 +77,12 @@ export async function generateItinerary(
     : await searchGeoapifyPlaces(geoapifyKey, ["tourism.sights", "catering.restaurant"], geo.lat, geo.lon, 8000, 80);
 
   // 3. Build prompt
+  // Count days from date-only UTC midnights so a DST transition (a 23h/25h
+  // local day) can't shift the count by one.
+  const toUTCDay = (s: string) => { const [y, m, d] = String(s).split("-").map(Number); return Date.UTC(y, (m || 1) - 1, d || 1); };
   const dayCount = Math.max(
     1,
-    Math.round((new Date(opts.endDate).getTime() - new Date(opts.startDate).getTime()) / 86_400_000) + 1
+    Math.round((toUTCDay(opts.endDate) - toUTCDay(opts.startDate)) / 86_400_000) + 1
   );
   const poiSummary = pois.slice(0, 60).map((p) => `- ${p.name} (${p.category}) @ ${p.lat},${p.lon} [id:${p.id}]`).join("\n");
   const prompt = `You are a travel planner. Generate a ${dayCount}-day itinerary for ${opts.destination}.
@@ -124,12 +127,18 @@ Return ONLY valid JSON matching this TypeScript shape, no prose, no markdown fen
   const text = result.response.text();
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("Itinerary model returned no JSON");
-  const parsed = JSON.parse(jsonMatch[0]) as { days: ItineraryDay[] };
+  let parsed: { days: ItineraryDay[] };
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as { days: ItineraryDay[] };
+  } catch {
+    throw new Error("Itinerary model returned malformed JSON");
+  }
+  if (!Array.isArray(parsed.days)) throw new Error("Itinerary model returned no days");
 
   // 4. Backfill POI coords from id if model omitted
   const poiIndex = new Map(pois.map((p) => [p.id, p]));
   for (const day of parsed.days) {
-    for (const act of day.activities) {
+    for (const act of (day.activities || [])) {
       if (act.poiId && !act.location) {
         const p = poiIndex.get(act.poiId);
         if (p) act.location = { name: p.name, lat: p.lat, lon: p.lon };
@@ -174,5 +183,10 @@ Return ONLY JSON array: [{"category":"...", "items":["..."]}]`;
   const res = await model.generateContent(prompt);
   const m = res.response.text().match(/\[[\s\S]*\]/);
   if (!m) return [];
-  return JSON.parse(m[0]);
+  try {
+    const parsed = JSON.parse(m[0]);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }

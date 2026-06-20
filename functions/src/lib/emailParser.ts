@@ -59,7 +59,7 @@ export async function getGmailMessage(accessToken: string, id: string): Promise<
   if (!res.ok) throw new Error(`Gmail get ${res.status}`);
   const j = await res.json();
   const headers: Array<{ name: string; value: string }> = j.payload?.headers || [];
-  const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || "";
+  const h = (n: string) => headers.find((x) => x.name?.toLowerCase() === n.toLowerCase())?.value || "";
   const bodyText = extractPlainText(j.payload);
   return { subject: h("subject"), from: h("from"), date: h("date"), bodyText };
 }
@@ -121,6 +121,10 @@ If not a travel booking, return: {"type":"other","provider":"","notes":"not a bo
   if (!m) return null;
   try {
     const parsed = JSON.parse(m[0]) as ParsedBooking;
+    // Validate the shape before it flows into Firestore as a "booking" — guards
+    // against malformed or prompt-injected output.
+    const allowed = ["flight", "hotel", "car", "train", "bus", "ferry", "event", "tour", "other"];
+    if (!parsed || typeof parsed !== "object" || !allowed.includes(parsed.type)) return null;
     if (parsed.type === "other" && !parsed.confirmationCode) return null;
     return parsed;
   } catch {
