@@ -39,6 +39,13 @@ This pass fixes the security + correctness + accessibility findings.
 - **Image upload validation:** non-image or >20 MB files are rejected with a clear toast before any encode/upload, on both the file picker and drag-drop paths.
 - **Car rental + experiences search:** wired the previously UI-less `searchCars` (Amadeus) and `searchExperiences` (Geoapify/OpenTripMap) callables into the Bookings page with their own forms + result renderers. `index.html`, `src/main.ts`.
 
+## Backend hardening (functions/src/lib)
+- **OAuth bodies:** Amadeus + Airalo credentials URL-encoded (`URLSearchParams`); Amadeus token cached in-flight to stop concurrent calls racing.
+- **Parse safety:** try/catch + `Array.isArray` around all Gemini JSON (itinerary, packing list); booking-email type validated against an allow-list; null-safe Gmail headers.
+- **Numeric guards:** reject non-numeric AQICN AQI (`"-"`), FX computed from unit rate (no divide-by-zero), Climatiq CO₂ validated finite.
+- **Money math:** group-expense splits guard empty arrays (no NaN), fall back to equal split on non-positive share sums, and scale `exact` splits so balances net to zero; price-watch baseline accepts a legitimate `0`.
+- **Links/dates:** Travelpayouts doesn't double-prefix absolute affiliate URLs; itinerary day count computed from UTC date-only midnights (DST-safe).
+
 ## Verification
 - `tsc --noEmit` (frontend) — clean
 - `functions` `tsc --noEmit` — clean
