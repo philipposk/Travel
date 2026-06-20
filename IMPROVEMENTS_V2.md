@@ -44,6 +44,7 @@ This pass fixes the security + correctness + accessibility findings.
 - **Translate quality-of-life:** 8 one-tap common-phrase presets, Enter-to-translate, a copy-to-clipboard button on the result, and the target language auto-fills from the identified destination's main language.
 - **Recent identifications:** the last 8 identified places are kept in `localStorage` (works without sign-in) and shown as one-tap chips to re-open instantly; "Clear" wipes them.
 - **Keyboard shortcuts:** `/` focuses the identify search, `a` toggles the assistant, `Esc` closes any open sheet / dialog / menu / assistant. Ignored while typing in a field.
+- **My itineraries:** a tools-menu list of previously generated itineraries (already persisted by `generateAIItinerary`) so users can re-open any of them without paying for a new generation.
 
 ## Backend hardening (functions/src/lib)
 - **OAuth bodies:** Amadeus + Airalo credentials URL-encoded (`URLSearchParams`); Amadeus token cached in-flight to stop concurrent calls racing.

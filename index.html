@@ -319,6 +319,7 @@
       </button>
       <div id="toolsMenu" role="menu" aria-label="Tools" style="display:none;position:absolute;right:24px;top:64px;background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:8px;min-width:220px;z-index:35">
         <a role="menuitem" tabindex="-1" href="#" data-action="open-itinerary-form" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Plan an itinerary</a>
+        <a role="menuitem" tabindex="-1" href="#" data-action="open-itineraries" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">My itineraries</a>
         <a role="menuitem" tabindex="-1" href="#" data-action="open-watches" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Price watches</a>
         <a role="menuitem" tabindex="-1" href="#" data-action="open-esim" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">eSIM packages</a>
         <a role="menuitem" tabindex="-1" href="#" data-action="open-fx" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Currency converter</a>
@@ -917,6 +918,17 @@
       </div>
       <div id="fxResult" style="margin-top:16px"></div>
     </div>
+  </div>
+</div>
+
+<!-- Saved itineraries sheet -->
+<div class="sheet-backdrop" id="itinListSheet">
+  <div class="sheet" style="max-width:520px">
+    <div class="sheet-head">
+      <h3>My itineraries</h3>
+      <button class="close" data-close="itinListSheet"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="sheet-body" id="itinListBody"></div>
   </div>
 </div>
 

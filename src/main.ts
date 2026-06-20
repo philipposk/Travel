@@ -274,6 +274,8 @@ function initRouter() {
 function handleAction(action: string) {
   if (action === "create-itinerary" || action === "open-itinerary-form") {
     openItinForm();
+  } else if (action === "open-itineraries") {
+    openSheet("itinListSheet"); refreshItineraries();
   } else if (action === "open-vault") {
     openSheet("vaultSheet"); refreshVaultList();
   } else if (action === "open-journal") {
@@ -1320,6 +1322,38 @@ function paintItinerary(it: Itinerary) {
         <div class="meta">${esc(day.date)} · est. ${esc(it.currency)} ${Math.round(day.estimatedDailyCost)}${day.notes ? ` · ${esc(day.notes)}` : ""}</div>
         <div class="acts">${acts}</div>
       </div>`);
+  }
+}
+
+// List previously generated itineraries (persisted by generateAIItinerary) and
+// let the user re-open any of them without paying for a fresh generation.
+async function refreshItineraries() {
+  const body = $("#itinListBody")!;
+  const u = realUser();
+  if (!u) { body.innerHTML = "<div class='empty'>Sign in to see your saved itineraries.</div>"; return; }
+  body.innerHTML = "<div class='skeleton'></div>";
+  try {
+    const list = await getDocsOnce<Itinerary>(`users/${u.uid}/itineraries`);
+    if (!list.length) { body.innerHTML = "<div class='empty'>No itineraries yet. Generate one from Plan an itinerary.</div>"; return; }
+    // Newest first when a sortable startDate exists.
+    list.sort((a, b) => String(b.startDate || "").localeCompare(String(a.startDate || "")));
+    body.innerHTML = list.map((it, i) => `
+      <button class="quote itin-open" data-itin="${i}" style="width:100%;text-align:left;background:none;border:1px solid var(--line);cursor:pointer">
+        <div class="src"><strong>${esc(it.destination)}</strong><small>${esc(it.days?.length || 0)} days · ${esc(it.startDate || "")}${it.endDate ? `–${esc(it.endDate)}` : ""}</small></div>
+        <div class="price">${esc(it.currency || "")} ${Math.round(it.totalEstimatedCost || 0)}</div>
+      </button>`).join("");
+    body.querySelectorAll<HTMLButtonElement>("[data-itin]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const it = list[Number(b.dataset.itin)];
+        if (!it) return;
+        currentItinerary = it;
+        paintItinerary(it);
+        closeSheet("itinListSheet");
+        openSheet("itinViewSheet");
+      })
+    );
+  } catch (e) {
+    body.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
   }
 }
 
