@@ -1835,10 +1835,16 @@ function paintTripTab(tab: typeof currentTripTab) {
 }
 
 function paintTripOverview(t: SavedTrip, body: HTMLElement) {
+  const statusOpt = (v: string, label: string) => `<option value="${v}"${(t.status || "idea") === v ? " selected" : ""}>${label}</option>`;
   body.innerHTML = `
     <div class="insight-card">
       <h4>${esc(t.name)}</h4>
       <p>${esc(t.destination)}${t.countryCode ? ` · ${esc(t.countryCode)}` : ""}${t.dates ? ` · ${esc(t.dates)}` : ""}</p>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--muted)">Status
+        <select id="tripStatus" style="padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font:inherit;font-size:13px">
+          ${statusOpt("idea", "💡 Idea")}${statusOpt("planning", "🗺️ Planning")}${statusOpt("booked", "✅ Booked")}
+        </select>
+      </label>
       <div class="row-actions" style="margin-top:12px">
         <button class="btn ghost sm" id="tripPlanItin">Plan itinerary</button>
         ${t.lat != null ? `<a class="btn ghost sm" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${t.lat},${t.lon}">Open in Maps</a>` : ""}
@@ -1846,6 +1852,18 @@ function paintTripOverview(t: SavedTrip, body: HTMLElement) {
         <button class="btn ghost sm" id="tripDelete">Delete</button>
       </div>
     </div>`;
+  $<HTMLSelectElement>("#tripStatus")?.addEventListener("change", async (ev) => {
+    const u = realUser();
+    if (!u || !db) { openAuth(); return; }
+    const status = (ev.target as HTMLSelectElement).value;
+    try {
+      await setDoc(doc(db, `users/${u.uid}/trips/${t.id}`), { status }, { merge: true });
+      t.status = status; // keep the in-memory copy in sync
+      toast("Status updated", "ok");
+    } catch (e) {
+      toast((e as Error).message, "err");
+    }
+  });
   $("#tripPlanItin")?.addEventListener("click", () => {
     closeSheet("tripSheet");
     currentIdentified = currentIdentified || ({
