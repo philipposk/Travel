@@ -312,6 +312,9 @@ function closeToolsMenu() {
 
 // ── Identify flow ───────────────────────────────────────────────────────────
 let currentIdentified: IdentifyResult | null = null;
+// Last destination intel, kept so other features (e.g. the packing list) can
+// reuse its real weather instead of a hardcoded "varied climate" placeholder.
+let lastIntel: DestinationIntel | null = null;
 
 // Disable the identify controls while a request is in flight so a user can't
 // fire several overlapping calls (whose responses would arrive out of order).
@@ -431,6 +434,7 @@ const WEATHER_CODES: Record<number, string> = {
 };
 
 function paintIntel(i: DestinationIntel) {
+  lastIntel = i;
   const cc = i.geo?.countryCode || "";
   const today = i.weather?.[0];
   // Show the destination's actual local time when we know its timezone; fall
@@ -1138,7 +1142,7 @@ function initItin() {
           destination: currentItinerary.destination,
           startDate: currentItinerary.startDate,
           endDate: currentItinerary.endDate,
-          weatherSummary: "varied climate",
+          weatherSummary: packingWeatherSummary(),
           activities: currentItinerary.days.flatMap((d) => d.activities.map((a) => a.category)),
         }
       );
@@ -1151,6 +1155,24 @@ function initItin() {
       toast(`Packing list failed: ${(e as Error).message}`, "err");
     }
   });
+}
+
+// Build a short weather description for the packing-list prompt from the most
+// recent destination intel, instead of a hardcoded placeholder.
+function packingWeatherSummary(): string {
+  const i = lastIntel;
+  if (!i) return "varied climate";
+  const today = i.weather?.[0];
+  const parts: string[] = [];
+  if (today) {
+    parts.push(`currently ~${Math.round(today.tempMaxC)}°/${Math.round(today.tempMinC)}°C, ${WEATHER_CODES[today.weatherCode] || "mixed"}`);
+  }
+  if (i.climate?.length === 12) {
+    const hi = Math.round(Math.max(...i.climate.map((m) => m.avgTempC)));
+    const lo = Math.round(Math.min(...i.climate.map((m) => m.avgTempC)));
+    parts.push(`yearly avg ${lo}–${hi}°C`);
+  }
+  return parts.length ? parts.join("; ") : "varied climate";
 }
 
 function paintItinerary(it: Itinerary) {
