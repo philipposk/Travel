@@ -595,6 +595,55 @@ function renderHotels(target: HTMLElement, hotels: HotelResult[]) {
   });
 }
 
+interface ExperienceResult {
+  id: string; name: string; location?: string; price?: number; currency?: string;
+  duration?: string; rating?: number; category?: string; source: string; url?: string;
+}
+function renderExperiences(target: HTMLElement, items: ExperienceResult[]) {
+  target.innerHTML = "";
+  if (!items.length) {
+    target.insertAdjacentHTML("beforeend", "<div class='empty'>Nothing found here yet. Try a bigger nearby city.</div>");
+    return;
+  }
+  items.slice(0, 18).forEach((x) => {
+    const meta = [x.category, x.location].filter(Boolean).map(esc).join(" · ");
+    const html = `
+      <a class="quote" href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener">
+        <div class="src"><strong>${esc(x.name)}</strong>${x.rating ? ` · ${"★".repeat(Math.max(0, Math.min(5, Math.round(x.rating))))}` : ""}<small>${meta || esc(x.source)}</small></div>
+        <div class="price">${x.price ? `${esc(x.currency || "USD")} ${Math.round(x.price)}` : "Free / varies"}</div>
+      </a>`;
+    target.insertAdjacentHTML("beforeend", html);
+  });
+}
+
+// Amadeus transfer-offer objects vary; render defensively from common fields.
+interface CarResult {
+  id?: string;
+  vehicle?: { description?: string; category?: string };
+  serviceProvider?: { name?: string };
+  quotation?: { monetaryAmount?: string; currencyCode?: string };
+  start?: { locationCode?: string };
+}
+function renderCars(target: HTMLElement, cars: CarResult[]) {
+  target.innerHTML = "";
+  if (!cars.length) {
+    target.insertAdjacentHTML("beforeend", "<div class='empty'>No transfers/cars found, or Amadeus isn't configured.</div>");
+    return;
+  }
+  cars.slice(0, 12).forEach((c) => {
+    const name = c.vehicle?.description || c.vehicle?.category || c.serviceProvider?.name || "Vehicle";
+    const provider = c.serviceProvider?.name || "Provider";
+    const price = c.quotation?.monetaryAmount;
+    const cur = c.quotation?.currencyCode || "";
+    const html = `
+      <div class="quote">
+        <div class="src"><strong>${esc(name)}</strong><small>${esc(provider)}${c.start?.locationCode ? ` · ${esc(c.start.locationCode)}` : ""}</small></div>
+        <div class="price">${price ? `${esc(cur)} ${esc(price)}` : "—"}</div>
+      </div>`;
+    target.insertAdjacentHTML("beforeend", html);
+  });
+}
+
 async function searchHotels(opts: { location: string; cityCode?: string; checkIn: string; checkOut: string; guests?: number }) {
   return call<typeof opts, { results: HotelResult[] }>("searchHotels", opts);
 }
@@ -820,6 +869,42 @@ function initBookings() {
         guests: Number(fd.get("guests")) || 2,
       });
       renderHotels(out, r.results);
+    } catch (err) {
+      out.innerHTML = `<div class='empty'>${esc((err as Error).message)}</div>`;
+    }
+  });
+
+  $<HTMLFormElement>("#carForm")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target as HTMLFormElement);
+    const out = $("#carResults")!;
+    out.innerHTML = `<div class='skeleton'></div><div class='skeleton'></div>`;
+    try {
+      const r = await call<{ pickupCode: string; pickupDate: string; dropoffDate: string }, { results: CarResult[] }>(
+        "searchCars",
+        {
+          pickupCode: String(fd.get("cityCode")).toUpperCase(),
+          pickupDate: String(fd.get("pickUp")),
+          dropoffDate: String(fd.get("dropOff")),
+        }
+      );
+      renderCars(out, r.results || []);
+    } catch (err) {
+      out.innerHTML = `<div class='empty'>${esc((err as Error).message)}</div>`;
+    }
+  });
+
+  $<HTMLFormElement>("#experienceForm")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target as HTMLFormElement);
+    const out = $("#experienceResults")!;
+    out.innerHTML = `<div class='skeleton'></div><div class='skeleton'></div>`;
+    try {
+      const r = await call<{ location: string; date?: string }, { results: ExperienceResult[] }>(
+        "searchExperiences",
+        { location: String(fd.get("location")), date: String(fd.get("date") || "") || undefined }
+      );
+      renderExperiences(out, r.results || []);
     } catch (err) {
       out.innerHTML = `<div class='empty'>${esc((err as Error).message)}</div>`;
     }

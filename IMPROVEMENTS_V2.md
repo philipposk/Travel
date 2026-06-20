@@ -37,6 +37,7 @@ This pass fixes the security + correctness + accessibility findings.
 - **Real destination local time:** `getDestinationIntel` now returns the destination's IANA timezone + UTC offset (Open-Meteo, keyless); the Essentials card shows the destination's actual clock instead of the viewer's. `functions/src/lib/intel.ts`, `functions/src/index.ts`, `src/main.ts`.
 - **Currency converter:** new tools-menu item + sheet wired to the existing keyless `convertCurrency` (ECB mid-market rates). Live conversion + unit rate. `index.html`, `src/main.ts`.
 - **Image upload validation:** non-image or >20 MB files are rejected with a clear toast before any encode/upload, on both the file picker and drag-drop paths.
+- **Car rental + experiences search:** wired the previously UI-less `searchCars` (Amadeus) and `searchExperiences` (Geoapify/OpenTripMap) callables into the Bookings page with their own forms + result renderers. `index.html`, `src/main.ts`.
 
 ## Verification
 - `tsc --noEmit` (frontend) — clean

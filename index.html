@@ -647,6 +647,23 @@
       <button class="btn clay" type="submit">Search</button>
     </form>
     <div class="results-list" id="hotelResults"></div>
+
+    <div class="section-head" style="margin-top:64px"><h3>Car rental</h3></div>
+    <form class="booking-form" id="carForm" style="grid-template-columns:1fr 1fr 1fr auto">
+      <label>Pick-up city code<input name="cityCode" placeholder="BER" required maxlength="3" style="text-transform:uppercase"></label>
+      <label>Pick-up date<input type="date" name="pickUp" required></label>
+      <label>Drop-off date<input type="date" name="dropOff" required></label>
+      <button class="btn clay" type="submit">Search</button>
+    </form>
+    <div class="results-list" id="carResults"></div>
+
+    <div class="section-head" style="margin-top:64px"><h3>Things to do</h3></div>
+    <form class="booking-form" id="experienceForm" style="grid-template-columns:1fr 1fr auto">
+      <label>City or place<input name="location" placeholder="Berlin" required></label>
+      <label>Date (optional)<input type="date" name="date"></label>
+      <button class="btn clay" type="submit">Search</button>
+    </form>
+    <div class="results-list" id="experienceResults"></div>
   </div>
 </section>
 
