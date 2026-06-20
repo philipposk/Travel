@@ -40,6 +40,8 @@ This pass fixes the security + correctness + accessibility findings.
 - **Car rental + experiences search:** wired the previously UI-less `searchCars` (Amadeus) and `searchExperiences` (Geoapify/OpenTripMap) callables into the Bookings page with their own forms + result renderers. `index.html`, `src/main.ts`.
 - **Live map:** the decorative map placeholder is replaced on identify with a real, keyless OpenStreetMap embed centred on the place; "View full screen" opens OSM at the coordinates. No API key, no billing. `index.html`, `src/main.ts`.
 - **7-day forecast:** Essentials tab now shows a 7-day forecast strip (emoji + hi/lo) from the weather data the backend already returned but never displayed.
+- **PWA install:** captures `beforeinstallprompt` and offers an "Install app" tools-menu item that triggers the native install flow.
+- **Translate quality-of-life:** 8 one-tap common-phrase presets, Enter-to-translate, a copy-to-clipboard button on the result, and the target language auto-fills from the identified destination's main language.
 
 ## Backend hardening (functions/src/lib)
 - **OAuth bodies:** Amadeus + Airalo credentials URL-encoded (`URLSearchParams`); Amadeus token cached in-flight to stop concurrent calls racing.

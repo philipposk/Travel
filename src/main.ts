@@ -496,6 +496,11 @@ function renderForecast(days: DestinationIntel["weather"]) {
 function paintIntel(i: DestinationIntel) {
   lastIntel = i;
   renderForecast(i.weather);
+  // Pre-fill the translator's target with the destination's main language,
+  // unless the user already typed their own target.
+  const mainLang = i.countryFacts?.languages ? Object.values(i.countryFacts.languages)[0] : null;
+  const tgt = $<HTMLInputElement>("#translateTarget");
+  if (mainLang && tgt && (!tgt.value.trim() || tgt.value.trim() === "German")) tgt.value = mainLang;
   const cc = i.geo?.countryCode || "";
   const today = i.weather?.[0];
   // Show the destination's actual local time when we know its timezone; fall
@@ -1043,30 +1048,48 @@ function initVisas() {
 }
 
 // ── Translate ──────────────────────────────────────────────────────────────
+async function runTranslate() {
+  const text = $<HTMLInputElement>("#translateText")!.value.trim();
+  const target = $<HTMLInputElement>("#translateTarget")!.value.trim();
+  if (!text || !target) return;
+  const panel = $("#translatePanel")!;
+  panel.innerHTML = `<div class='skeleton'></div>`;
+  try {
+    const r = await call<{ text: string; target: string }, {
+      translation: string; pronunciation?: string; literal?: string; formality?: string; notes?: string;
+    }>("translatePhrase", { text, target });
+    panel.innerHTML = `
+      <div class="insight-card">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
+          <h4 style="margin:0">${esc(target)}</h4>
+          <button class="copy-btn" id="copyTranslation" data-copy="${esc(r.translation)}">Copy</button>
+        </div>
+        <p class="serif" style="font-size:24px;line-height:1.2;margin-top:8px">${esc(r.translation)}</p>
+        ${r.pronunciation ? `<p style="margin-top:8px"><span class="tag">Pronunciation</span> ${esc(r.pronunciation)}</p>` : ""}
+        ${r.literal ? `<p style="margin-top:8px"><span class="tag">Literal</span> ${esc(r.literal)}</p>` : ""}
+        ${r.formality ? `<p style="margin-top:8px"><span class="tag">Register</span> ${esc(r.formality)}</p>` : ""}
+        ${r.notes ? `<p style="margin-top:8px"><span class="tag">Notes</span> ${esc(r.notes)}</p>` : ""}
+      </div>`;
+    $("#copyTranslation")?.addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget as HTMLButtonElement;
+      try { await navigator.clipboard.writeText(btn.dataset.copy || ""); btn.textContent = "Copied ✓"; setTimeout(() => { btn.textContent = "Copy"; }, 1500); }
+      catch { toast("Copy failed", "err"); }
+    });
+  } catch (e) {
+    panel.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
+  }
+}
+
 function initTranslate() {
-  $("#translateBtn")!.addEventListener("click", async () => {
-    const text = $<HTMLInputElement>("#translateText")!.value.trim();
-    const target = $<HTMLInputElement>("#translateTarget")!.value.trim();
-    if (!text || !target) return;
-    const panel = $("#translatePanel")!;
-    panel.innerHTML = `<div class='skeleton'></div>`;
-    try {
-      const r = await call<{ text: string; target: string }, {
-        translation: string; pronunciation?: string; literal?: string; formality?: string; notes?: string;
-      }>("translatePhrase", { text, target });
-      panel.innerHTML = `
-        <div class="insight-card">
-          <h4>${esc(target)}</h4>
-          <p class="serif" style="font-size:24px;line-height:1.2">${esc(r.translation)}</p>
-          ${r.pronunciation ? `<p style="margin-top:8px"><span class="tag">Pronunciation</span> ${esc(r.pronunciation)}</p>` : ""}
-          ${r.literal ? `<p style="margin-top:8px"><span class="tag">Literal</span> ${esc(r.literal)}</p>` : ""}
-          ${r.formality ? `<p style="margin-top:8px"><span class="tag">Register</span> ${esc(r.formality)}</p>` : ""}
-          ${r.notes ? `<p style="margin-top:8px"><span class="tag">Notes</span> ${esc(r.notes)}</p>` : ""}
-        </div>`;
-    } catch (e) {
-      panel.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
-    }
-  });
+  $("#translateBtn")!.addEventListener("click", runTranslate);
+  $<HTMLInputElement>("#translateText")!.addEventListener("keydown", (e) => { if (e.key === "Enter") runTranslate(); });
+  // Quick-phrase chips: prefill the input and translate immediately.
+  $$<HTMLElement>(".phrase-preset").forEach((p) =>
+    p.addEventListener("click", () => {
+      $<HTMLInputElement>("#translateText")!.value = p.textContent || "";
+      runTranslate();
+    })
+  );
 }
 
 // ── Community ──────────────────────────────────────────────────────────────

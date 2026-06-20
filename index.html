@@ -205,6 +205,10 @@
   .msg.bot{background:var(--bg-2);align-self:flex-start;border-bottom-left-radius:4px}
   .msg.you{background:var(--ink);color:var(--paper);align-self:flex-end;border-bottom-right-radius:4px}
   .msg.err{background:#f6e3da;color:#7d3514;border:1px solid #e3b9a6;align-self:flex-start;border-bottom-left-radius:4px}
+  .phrase-preset{cursor:pointer;transition:background .15s ease}
+  .phrase-preset:hover{background:var(--clay);color:#fff}
+  .copy-btn{cursor:pointer;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;color:var(--ink)}
+  .copy-btn:hover{border-color:var(--clay);color:var(--clay)}
   .chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px}
   .chip{font-size:12px;padding:6px 10px;border-radius:999px;background:var(--bg-2);border:1px solid var(--line);color:var(--ink-2);cursor:pointer}
   .chip:hover{border-color:var(--line-2);background:var(--paper)}
@@ -714,6 +718,16 @@
       <label>Phrase<input id="translateText" placeholder='Where is the train station?'></label>
       <label>To<input id="translateTarget" placeholder="German" value="German"></label>
       <button class="btn clay" id="translateBtn">Translate</button>
+    </div>
+    <div class="row-actions" id="phrasePresets" style="margin-top:12px">
+      <span class="pill phrase-preset">Hello</span>
+      <span class="pill phrase-preset">Thank you</span>
+      <span class="pill phrase-preset">How much is this?</span>
+      <span class="pill phrase-preset">Where is the bathroom?</span>
+      <span class="pill phrase-preset">I don't understand</span>
+      <span class="pill phrase-preset">Can you help me?</span>
+      <span class="pill phrase-preset">The bill, please</span>
+      <span class="pill phrase-preset">I'm allergic to nuts</span>
     </div>
     <div id="translatePanel" style="margin-top:24px"></div>
   </div>
