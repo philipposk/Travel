@@ -1,8 +1,7 @@
 // Enhanced Auth Setup with Multiple Providers
 // This shows how to add Google, Apple, Facebook, Twitter, GitHub, Email
 
-import { 
-  getAuth,
+import {
   GoogleAuthProvider,
   FacebookAuthProvider,
   TwitterAuthProvider,

@@ -240,7 +240,7 @@ export class AirportService {
   }
 
   // Fetch real-time data (gates, wait times, etc.)
-  private async fetchRealTimeData(airportCode: string): Promise<{
+  private async fetchRealTimeData(_airportCode: string): Promise<{
     gates: Gate[];
     securityWaitTimes: SecurityWaitTime[];
     passportControlTimes: PassportControlTime[];

@@ -1,378 +1,922 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/gemini.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Travel Assistant - Complete Travel Platform</title>
-  </head>
-  <body>
-    <div id="app">
-      <div id="auth-container">
-        <div id="auth-buttons">
-          <button id="sign-in-google" class="auth-btn google">Sign in with Google</button>
-          <button id="sign-in-apple" class="auth-btn apple">Sign in with Apple</button>
-          <button id="sign-in-facebook" class="auth-btn facebook">Sign in with Facebook</button>
-          <button id="sign-in-twitter" class="auth-btn twitter">Sign in with Twitter</button>
-          <button id="sign-in-github" class="auth-btn github">Sign in with GitHub</button>
-        </div>
-        <div id="email-auth" style="margin-top: 1em;">
-          <h4>Or sign in with Email</h4>
-          <input type="email" id="email-input" placeholder="Email" />
-          <input type="password" id="password-input" placeholder="Password" />
-          <button id="sign-in-email">Sign In</button>
-          <button id="sign-up-email">Sign Up</button>
-        </div>
-        <div id="user-info"></div>
-        <button id="sign-out-button" style="display: none;">Sign Out</button>
-      </div>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Atlas — AI travel companion</title>
+<link rel="icon" href="/assets/gemini.svg" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#B5532A" />
+<meta name="description" content="Atlas — identify any place from a photo, plan the whole trip. Flights, visas, gates, phrases, scams to dodge." />
+<meta property="og:title" content="Atlas — AI travel companion" />
+<meta property="og:description" content="Show me a photo. I'll plan the whole trip." />
+<meta property="og:image" content="/assets/reichstag.jpeg" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F1E7; --bg-2:#EFE8D8; --paper:#FBF8F1;
+    --ink:#15140F; --ink-2:#3A372E; --muted:#7C7768;
+    --line:#E1D9C7; --line-2:#D2C7AF;
+    --clay:#B5532A; --clay-2:#8C3F1F; --moss:#3F5C3A; --sky:#3B6E8F;
+    --shadow: 0 1px 0 rgba(21,20,15,.04), 0 12px 30px -16px rgba(21,20,15,.18);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:'Manrope',ui-sans-serif,system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+  .serif{font-family:'Instrument Serif',ui-serif,Georgia,serif;font-weight:400;letter-spacing:-0.01em}
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+  a{color:inherit;text-decoration:none}
+  button{font-family:inherit;color:inherit;border:0;background:none;cursor:pointer;font-size:inherit}
+  .shell{max-width:1240px;margin:0 auto;padding:0 32px}
 
-      <h1>AI Travel Assistant</h1>
-      
-      <div id="media-selection">
-        <img src="/beach.jpeg" alt="Beach" class="selectable"/>
-        <img src="/reichstag.jpeg" alt="Reichstag" class="selectable"/>
-        <img src="/waterfall.jpeg" alt="Waterfall" class="selectable"/>
-        <div id="upload-card" class="upload-card selectable">
-          <input type="file" id="image-upload" accept="image/*" style="display: none;" />
-          <label for="image-upload" class="upload-label">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <span>Upload Your Image</span>
-            <small>Click or drag & drop</small>
+  header.top{position:sticky;top:0;z-index:30;background:rgba(246,241,231,.85);backdrop-filter:saturate(140%) blur(10px);border-bottom:1px solid var(--line);}
+  .top-row{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-family:'Instrument Serif',serif;font-size:24px;letter-spacing:-.01em;cursor:pointer}
+  .brand .mark{width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #E8B58A 0%, var(--clay) 55%, #5b2913 100%);box-shadow:inset 0 0 0 1px rgba(0,0,0,.15), 0 1px 2px rgba(0,0,0,.1);}
+  nav.primary{display:flex;gap:28px}
+  nav.primary a{font-size:14px;font-weight:500;color:var(--ink-2);position:relative;padding:6px 0;cursor:pointer}
+  nav.primary a.active{color:var(--ink)}
+  nav.primary a.active::after{content:"";position:absolute;left:0;right:0;bottom:-3px;height:2px;background:var(--clay);border-radius:2px}
+  .top-actions{display:flex;align-items:center;gap:14px}
+  .icon-btn{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line);background:var(--paper);}
+  .icon-btn:hover{border-color:var(--line-2)}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;background:var(--ink);color:var(--paper);transition:transform .15s ease, background .15s ease;}
+  .btn:hover{background:#000;transform:translateY(-1px)}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line-2)}
+  .btn.ghost:hover{background:var(--paper)}
+  .btn.clay{background:var(--clay);color:#fff}
+  .btn.clay:hover{background:var(--clay-2)}
+  .btn.sm{padding:7px 12px;font-size:13px}
+  .btn[disabled]{opacity:.55;cursor:not-allowed;transform:none}
+
+  .hero{padding:72px 0 56px;position:relative;overflow:hidden}
+  .eyebrow{display:inline-flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--clay);box-shadow:0 0 0 4px rgba(181,83,42,.15)}
+  .hero h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:clamp(48px,7.2vw,104px);line-height:.95;letter-spacing:-.025em;margin:20px 0 0;max-width:14ch;}
+  .hero h1 .ital{font-style:italic;color:var(--clay)}
+  .hero-sub{margin-top:28px;max-width:54ch;font-size:18px;line-height:1.55;color:var(--ink-2);}
+  .hero-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:56px;align-items:end;margin-top:48px;}
+  @media (max-width: 920px){ .hero-grid{grid-template-columns:1fr;gap:32px} }
+
+  .identify-card{background:var(--paper);border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:var(--shadow);}
+  .identify-input{display:flex;align-items:center;gap:10px;padding:8px 10px 8px 14px;background:var(--bg-2);border-radius:14px;}
+  .identify-input input{flex:1;border:0;background:transparent;outline:none;font:inherit;color:var(--ink);font-size:15px;padding:8px 0;}
+  .identify-input input::placeholder{color:var(--muted)}
+  .identify-input .btn{padding:9px 14px}
+  .or{display:flex;align-items:center;gap:10px;margin:14px 4px;color:var(--muted);font-size:12px}
+  .or .line{flex:1;height:1px;background:var(--line)}
+  .samples{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .sample{position:relative;border-radius:12px;overflow:hidden;cursor:pointer;aspect-ratio: 4/5;background:#000;box-shadow:0 1px 0 rgba(0,0,0,.04);border:0;padding:0;}
+  .sample img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .6s ease}
+  .sample:hover img{transform:scale(1.06)}
+  .sample::after{content:"";position:absolute;inset:0;background:linear-gradient(to top, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 55%);}
+  .sample .label{position:absolute;left:10px;right:10px;bottom:8px;color:#fff;font-size:12px;display:flex;justify-content:space-between;align-items:end;gap:8px;z-index:1;}
+  .sample .label .name{font-family:'Instrument Serif',serif;font-size:16px;line-height:1.1}
+  .sample.is-active{outline:2px solid var(--clay);outline-offset:2px}
+  .upload{margin-top:10px;border:1px dashed var(--line-2);border-radius:14px;padding:14px;display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px;cursor:pointer;}
+  .upload.dragging{background:var(--bg-2);border-color:var(--clay)}
+  .upload .ico{width:34px;height:34px;border-radius:8px;background:var(--bg-2);display:grid;place-items:center;color:var(--ink-2)}
+  .upload strong{color:var(--ink);font-weight:600}
+
+  .collage{position:relative;height:480px;}
+  .collage .ph{position:absolute;border-radius:18px;overflow:hidden;box-shadow:var(--shadow);border:1px solid rgba(255,255,255,.4);}
+  .collage .ph img{width:100%;height:100%;object-fit:cover;display:block}
+  .ph.p1{left:0;top:24px;width:62%;height:360px;transform:rotate(-2.5deg)}
+  .ph.p2{right:0;top:0;width:46%;height:240px;transform:rotate(3deg);z-index:2}
+  .ph.p3{right:18%;bottom:0;width:48%;height:220px;transform:rotate(-1.5deg);z-index:1}
+  .stamp{position:absolute;left:46%;top:38%;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow);z-index:3;transform:rotate(-3deg);}
+  .stamp .pin{width:8px;height:8px;border-radius:50%;background:var(--clay);box-shadow:0 0 0 4px rgba(181,83,42,.18)}
+  .stamp .t{font-family:'Instrument Serif',serif;font-size:15px;line-height:1}
+  .stamp .s{font-size:11px;color:var(--muted);margin-top:2px}
+
+  .stats{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:22px 0;background:var(--bg-2);}
+  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:32px}
+  .stat{display:flex;flex-direction:column;gap:4px}
+  .stat .n{font-family:'Instrument Serif',serif;font-size:34px;line-height:1}
+  .stat .l{font-size:12px;color:var(--muted)}
+
+  .result{padding:64px 0 24px;display:none}
+  .result.is-open{display:block}
+  .result-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;}
+  @media (max-width: 920px){ .result-grid{grid-template-columns:1fr} }
+  .photo-frame{position:relative;border-radius:20px;overflow:hidden;aspect-ratio:4/5;background:#000;box-shadow:var(--shadow);}
+  .photo-frame img{width:100%;height:100%;object-fit:cover;display:block}
+  .photo-meta{position:absolute;left:16px;right:16px;bottom:16px;background:rgba(15,14,10,.55);backdrop-filter:blur(8px);color:#fff;border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between;gap:12px;font-size:12px;}
+  .photo-meta .conf{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.14);padding:4px 8px;border-radius:999px;}
+  .result h2{font-family:'Instrument Serif',serif;font-weight:400;font-size:clamp(40px,5vw,72px);line-height:1;margin:0;letter-spacing:-.02em;}
+  .result .where{display:flex;align-items:center;gap:10px;color:var(--muted);margin-top:14px;font-size:14px}
+  .facts{margin-top:24px;display:grid;grid-template-columns:repeat(2,1fr);gap:0;border:1px solid var(--line);border-radius:14px;background:var(--paper);overflow:hidden;}
+  .fact{padding:14px 16px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .fact:nth-child(2n){border-right:0}
+  .fact:nth-last-child(-n+2){border-bottom:0}
+  .fact .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .fact .v{font-family:'Instrument Serif',serif;font-size:22px;line-height:1.1;margin-top:4px}
+  .fact .v small{font-family:'Manrope',sans-serif;font-size:12px;color:var(--muted);letter-spacing:0;text-transform:none;font-weight:500}
+  .row-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+
+  .tabs{margin-top:32px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .tab-strip{display:flex;gap:0;overflow-x:auto}
+  .tab-btn{padding:14px 18px;font-size:13px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;}
+  .tab-btn.active{color:var(--ink);border-color:var(--clay)}
+  .tab-panel{padding:22px 0;display:none}
+  .tab-panel.active{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media (max-width: 760px){ .tab-panel.active{grid-template-columns:1fr} }
+  .insight-card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:16px 18px;}
+  .insight-card h4{margin:0 0 6px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .insight-card p{margin:0;color:var(--ink-2);font-size:14px;line-height:1.55}
+  .insight-card ul{margin:8px 0 0;padding-left:18px;color:var(--ink-2);font-size:14px}
+  .insight-card li{margin:4px 0}
+  .insight-card .tag{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .pill{display:inline-flex;align-items:center;gap:6px;background:var(--bg-2);border:1px solid var(--line);padding:4px 10px;border-radius:999px;font-size:12px;color:var(--ink-2)}
+  .pill.warn{background:#FBEAE0;border-color:#F1C9B0;color:#7d3514}
+  .pill.good{background:#E8EFE6;border-color:#C8D7C4;color:#3a5036}
+
+  .quote-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+  .quote{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);text-decoration:none;color:inherit;}
+  .quote .src{flex:1;font-size:13px}
+  .quote .src small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+  .quote .price{font-family:'Instrument Serif',serif;font-size:22px}
+  .quote.best{border-color:var(--clay);background:#FBF1E9}
+  .quote.best .price{color:var(--clay)}
+
+  .features{padding:96px 0 24px}
+  .section-head{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:36px;flex-wrap:wrap}
+  .section-head h3{font-family:'Instrument Serif',serif;font-weight:400;font-size:clamp(34px,4.2vw,56px);line-height:1;letter-spacing:-.02em;margin:0;max-width:18ch;}
+  .section-head .lede{max-width:42ch;color:var(--ink-2);font-size:16px}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media (max-width: 900px){ .grid-3{grid-template-columns:1fr 1fr} }
+  @media (max-width: 600px){ .grid-3{grid-template-columns:1fr} }
+  .feat{position:relative;background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px 22px 20px;min-height:200px;display:flex;flex-direction:column;justify-content:space-between;transition:transform .2s ease, border-color .2s ease;text-align:left;cursor:pointer;}
+  .feat:hover{border-color:var(--line-2);transform:translateY(-2px)}
+  .feat .ico{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:var(--bg-2);color:var(--ink);margin-bottom:18px;}
+  .feat.alt{background:var(--ink);color:#F6F1E7;border-color:var(--ink)}
+  .feat.alt .ico{background:rgba(255,255,255,.08);color:#F6F1E7}
+  .feat.alt .meta{color:rgba(246,241,231,.6)}
+  .feat.clay-bg{background:var(--clay);color:#fff;border-color:var(--clay)}
+  .feat.clay-bg .ico{background:rgba(255,255,255,.18);color:#fff}
+  .feat.clay-bg .meta{color:rgba(255,255,255,.7)}
+  .feat h5{font-family:'Instrument Serif',serif;font-weight:400;font-size:26px;line-height:1.05;margin:0 0 6px;letter-spacing:-.01em}
+  .feat p{margin:0;font-size:14px;line-height:1.5;color:var(--ink-2)}
+  .feat.alt p, .feat.clay-bg p{color:rgba(255,255,255,.78)}
+  .feat .meta{margin-top:14px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .arr{margin-left:auto;width:28px;height:28px;border-radius:50%;border:1px solid currentColor;display:grid;place-items:center;opacity:.85}
+
+  .trips{padding:80px 0 24px}
+  .rail{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media (max-width: 900px){ .rail{grid-template-columns:1fr 1fr} }
+  @media (max-width: 600px){ .rail{grid-template-columns:1fr} }
+  .trip{background:var(--paper);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column;}
+  .trip .cover{aspect-ratio:16/10;position:relative;overflow:hidden;background:var(--bg-2)}
+  .trip .cover img{width:100%;height:100%;object-fit:cover;display:block}
+  .trip .cover .stamp-sm{position:absolute;left:12px;top:12px;background:rgba(15,14,10,.6);color:#fff;backdrop-filter:blur(6px);font-size:11px;padding:4px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:6px;}
+  .trip-body{padding:16px 18px 18px}
+  .trip h6{margin:0;font-family:'Instrument Serif',serif;font-weight:400;font-size:22px;line-height:1.1}
+  .trip .dates{font-size:12px;color:var(--muted);margin-top:4px}
+  .trip .stops{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+  .trip-foot{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:12px 18px;font-size:12px;color:var(--muted)}
+  .avatars{display:flex}
+  .avatars .av{width:22px;height:22px;border-radius:50%;border:2px solid var(--paper);margin-left:-6px;background:#ccc}
+  .av.a1{background:#B5532A}.av.a2{background:#3F5C3A}.av.a3{background:#3B6E8F}
+
+  footer{margin-top:96px;border-top:1px solid var(--line);background:var(--bg-2)}
+  .foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:32px;padding:56px 0 32px}
+  @media (max-width: 760px){ .foot-grid{grid-template-columns:1fr 1fr} }
+  .foot-grid h6{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px;font-weight:600}
+  .foot-grid a{display:block;padding:4px 0;font-size:14px;color:var(--ink-2);cursor:pointer}
+  .foot-grid a:hover{color:var(--ink)}
+  .foot-grid .big{font-family:'Instrument Serif',serif;font-size:40px;line-height:1;letter-spacing:-.02em;max-width:14ch}
+  .foot-bottom{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding:18px 0;font-size:12px;color:var(--muted)}
+
+  .assistant{position:fixed;right:24px;bottom:24px;z-index:50;width:64px;height:64px;border-radius:50%;background:var(--ink);color:var(--paper);display:grid;place-items:center;box-shadow:0 10px 30px -10px rgba(0,0,0,.5);cursor:pointer;transition:transform .2s ease;}
+  .assistant:hover{transform:scale(1.05)}
+  .assistant .ring{position:absolute;inset:-6px;border-radius:50%;border:1px dashed rgba(21,20,15,.25);animation:spin 16s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .assist-panel{position:fixed;right:24px;bottom:96px;z-index:51;width:380px;max-width:calc(100vw - 32px);height:520px;background:var(--paper);border:1px solid var(--line);border-radius:20px;box-shadow:0 20px 60px -20px rgba(0,0,0,.35);display:none;flex-direction:column;overflow:hidden;}
+  .assist-panel.is-open{display:flex}
+  .assist-head{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+  .assist-head .av{width:32px;height:32px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #E8B58A, var(--clay) 60%, #5b2913)}
+  .assist-head .ti{font-family:'Instrument Serif',serif;font-size:18px;line-height:1}
+  .assist-head .st{font-size:11px;color:var(--muted)}
+  .assist-head .x{margin-left:auto;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center}
+  .assist-body{flex:1;padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+  .msg{max-width:80%;padding:10px 12px;border-radius:14px;font-size:14px;line-height:1.5;white-space:pre-wrap}
+  .msg.bot{background:var(--bg-2);align-self:flex-start;border-bottom-left-radius:4px}
+  .msg.you{background:var(--ink);color:var(--paper);align-self:flex-end;border-bottom-right-radius:4px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px}
+  .chip{font-size:12px;padding:6px 10px;border-radius:999px;background:var(--bg-2);border:1px solid var(--line);color:var(--ink-2);cursor:pointer}
+  .chip:hover{border-color:var(--line-2);background:var(--paper)}
+  .assist-foot{padding:12px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .assist-foot input{flex:1;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 12px;font:inherit;font-size:14px;outline:none}
+  .assist-foot input:focus{border-color:var(--line-2);background:var(--paper)}
+  .assist-foot .send{width:38px;height:38px;border-radius:50%;background:var(--clay);color:#fff;display:grid;place-items:center}
+
+  .ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .ic.lg{width:22px;height:22px}
+  .ic.sm{width:14px;height:14px}
+
+  .map-mock{width:100%;aspect-ratio:16/10;border-radius:14px;overflow:hidden;background:radial-gradient(ellipse at 30% 40%, #d8e5cf 0%, transparent 50%),radial-gradient(ellipse at 70% 60%, #cfe0e8 0%, transparent 55%),linear-gradient(135deg, #eee6d2 0%, #e3d6b9 100%);border:1px solid var(--line);position:relative;}
+  .map-mock svg{position:absolute;inset:0;width:100%;height:100%}
+  .map-pin{position:absolute;left:48%;top:42%;width:30px;height:30px;border-radius:50%;background:var(--clay);box-shadow:0 0 0 6px rgba(181,83,42,.22), 0 0 0 12px rgba(181,83,42,.1);display:grid;place-items:center;color:#fff;}
+  .map-tag{position:absolute;left:54%;top:42%;background:var(--paper);border:1px solid var(--line);padding:6px 10px;border-radius:10px;font-size:12px;box-shadow:var(--shadow);display:flex;align-items:center;gap:8px;}
+
+  .modal-backdrop{position:fixed;inset:0;z-index:60;background:rgba(15,14,10,.45);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;padding:24px;}
+  .modal-backdrop.is-open{display:flex}
+  .modal{background:var(--paper);border:1px solid var(--line);border-radius:18px;width:min(440px,100%);padding:24px;box-shadow:var(--shadow);position:relative;}
+  .modal h3{font-family:'Instrument Serif',serif;font-weight:400;font-size:28px;line-height:1.1;margin:0 0 8px;}
+  .modal p{margin:0 0 18px;color:var(--ink-2);font-size:14px}
+  .modal .stack{display:flex;flex-direction:column;gap:10px}
+  .modal .stack > button{width:100%;justify-content:center}
+  .modal .close{position:absolute;right:18px;top:18px;width:32px;height:32px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;background:var(--paper);}
+
+  /* Big modal (itinerary, settings) */
+  .sheet-backdrop{position:fixed;inset:0;z-index:60;background:rgba(15,14,10,.55);backdrop-filter:blur(4px);display:none;align-items:flex-start;justify-content:center;padding:48px 16px 16px;overflow-y:auto;}
+  .sheet-backdrop.is-open{display:flex}
+  .sheet{background:var(--paper);border:1px solid var(--line);border-radius:18px;width:min(880px,100%);box-shadow:var(--shadow);position:relative;}
+  .sheet-head{padding:20px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+  .sheet-head h3{margin:0;font-family:'Instrument Serif',serif;font-weight:400;font-size:28px;line-height:1.1}
+  .sheet-head .close{margin-left:auto;width:32px;height:32px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;background:var(--paper)}
+  .sheet-body{padding:20px 24px 24px;max-height:calc(100vh - 200px);overflow-y:auto}
+  .day{margin-bottom:24px;padding:16px 18px;background:var(--bg-2);border-radius:14px}
+  .day h5{margin:0 0 4px;font-family:'Instrument Serif',serif;font-weight:400;font-size:22px}
+  .day .meta{font-size:12px;color:var(--muted);margin-bottom:14px}
+  .acts{display:flex;flex-direction:column;gap:8px}
+  .act{display:flex;gap:14px;padding:10px 12px;background:var(--paper);border:1px solid var(--line);border-radius:10px}
+  .act .t{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--clay);padding-top:2px;min-width:48px}
+  .act .info{flex:1}
+  .act .info h6{margin:0 0 2px;font-family:'Manrope',sans-serif;font-weight:600;font-size:14px}
+  .act .info p{margin:0;color:var(--ink-2);font-size:13px;line-height:1.45}
+  .act .cost{font-family:'Instrument Serif',serif;font-size:18px;align-self:start}
+
+  .toast-wrap{position:fixed;top:84px;right:24px;z-index:80;display:flex;flex-direction:column;gap:8px}
+  .toast{background:var(--ink);color:var(--paper);padding:10px 14px;border-radius:12px;font-size:13px;box-shadow:var(--shadow);max-width:340px;animation:tin .2s ease}
+  .toast.err{background:#7d3514;color:#fff}
+  .toast.ok{background:var(--moss);color:#fff}
+  @keyframes tin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+
+  [data-route]{display:none}
+  [data-route].active{display:block}
+
+  .booking-form{display:grid;grid-template-columns:repeat(5, 1fr) auto;gap:8px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:12px;}
+  .booking-form label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .booking-form input,.booking-form select{padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:14px;color:var(--ink);outline:none}
+  .booking-form input:focus,.booking-form select:focus{border-color:var(--line-2);background:var(--paper)}
+  .booking-form .btn{align-self:end}
+  @media (max-width: 760px){ .booking-form{grid-template-columns:1fr 1fr} .booking-form .btn{grid-column:1 / -1} }
+  @media (max-width: 520px){ .booking-form{grid-template-columns:1fr} .booking-form .btn{grid-column:1 / -1} }
+  .results-list{display:flex;flex-direction:column;gap:8px;margin-top:24px}
+  .empty{color:var(--muted);font-size:14px;padding:24px;border:1px dashed var(--line);border-radius:12px;text-align:center}
+  .skeleton{height:62px;background:linear-gradient(90deg,var(--bg-2) 0%,var(--paper) 50%,var(--bg-2) 100%);background-size:200% 100%;animation:sk 1.2s linear infinite;border-radius:10px}
+  @keyframes sk{from{background-position:200% 0}to{background-position:-200% 0}}
+
+  .hero-title{font-family:'Instrument Serif',serif;font-weight:400;font-size:clamp(40px,5vw,72px);line-height:1;letter-spacing:-.02em;margin:16px 0 32px}
+  .hero-title .ital{color:var(--clay);font-style:italic}
+
+  /* Accessible modal dialog (replaces window.confirm / window.prompt) */
+  .ui-dialog-overlay{position:fixed;inset:0;background:rgba(20,16,12,.42);backdrop-filter:blur(2px);z-index:120;display:flex;align-items:center;justify-content:center;padding:20px;animation:tin .15s ease}
+  .ui-dialog{background:var(--paper);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:22px;max-width:380px;width:100%}
+  .ui-dialog h4{font-size:17px;margin:0 0 8px}
+  .ui-dialog p{font-size:14px;color:var(--ink-2,var(--muted));margin:0 0 14px;line-height:1.45}
+  .ui-dialog-field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:16px}
+  .ui-dialog-field input{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:15px;color:var(--ink);outline:none}
+  .ui-dialog-field input:focus{border-color:var(--clay)}
+  .ui-dialog-actions{display:flex;gap:10px;justify-content:flex-end}
+  .icon-btn:focus-visible,.tab-btn:focus-visible,.btn:focus-visible,nav.primary a:focus-visible,[role="menuitem"]:focus-visible{outline:2px solid var(--clay);outline-offset:2px;border-radius:8px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="shell top-row">
+    <a class="brand" data-nav="discover"><span class="mark"></span><span>atlas</span></a>
+    <nav class="primary" aria-label="Primary" id="primaryNav">
+      <a class="active" href="#discover" data-nav="discover">Discover</a>
+      <a href="#bookings" data-nav="bookings">Bookings</a>
+      <a href="#airports" data-nav="airports">Airports</a>
+      <a href="#visas" data-nav="visas">Visas</a>
+      <a href="#translate" data-nav="translate">Translate</a>
+      <a href="#community" data-nav="community">Community</a>
+    </nav>
+    <div class="top-actions">
+      <button class="icon-btn" aria-label="Tools" id="toolsBtn" title="Tools" aria-haspopup="true" aria-expanded="false" aria-controls="toolsMenu">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1A2 2 0 0 1 4.3 16.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1A2 2 0 0 1 7.2 4.3l.1.1a1.7 1.7 0 0 0 1.8.3H9.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+      <div id="toolsMenu" role="menu" aria-label="Tools" style="display:none;position:absolute;right:24px;top:64px;background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:8px;min-width:220px;z-index:35">
+        <a role="menuitem" tabindex="-1" href="#" data-action="open-itinerary-form" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Plan an itinerary</a>
+        <a role="menuitem" tabindex="-1" href="#" data-action="open-watches" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Price watches</a>
+        <a role="menuitem" tabindex="-1" href="#" data-action="open-esim" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">eSIM packages</a>
+        <a role="menuitem" tabindex="-1" href="#" data-action="open-fx" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Currency converter</a>
+        <a role="menuitem" tabindex="-1" href="#" data-action="open-vault" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Document vault</a>
+        <a role="menuitem" tabindex="-1" href="#" data-action="open-inbox" style="display:block;padding:8px 10px;border-radius:8px;cursor:pointer">Imported bookings</a>
+      </div>
+      <button class="btn ghost sm" id="signInBtn">Sign in</button>
+      <button class="btn sm" id="signedInMenu" style="display:none"><span id="userInitial">·</span></button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section data-route="discover" class="active">
+<section class="hero" id="discover">
+  <div class="shell">
+    <span class="eyebrow"><span class="dot"></span><span class="mono" id="heroBadge">Powered by Gemini · live booking sources</span></span>
+    <h1>Show me a photo.<br/>I'll plan the <span class="ital">whole trip.</span></h1>
+
+    <div class="hero-grid">
+      <div>
+        <p class="hero-sub">Drop a postcard, a screenshot, a memory. Atlas identifies the place, then opens every door behind it — flights, visas, gates, phrases, the local scams to avoid. One assistant, one canvas, the whole journey.</p>
+
+        <div class="identify-card" style="margin-top:32px">
+          <div class="identify-input">
+            <svg class="ic lg" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8 12 3 7 8"/><path d="M12 3v12"/></svg>
+            <input id="searchInput" placeholder="Paste an image URL, or describe a place…" />
+            <button class="btn clay" id="identifyBtn">Identify</button>
+          </div>
+
+          <div class="or"><span class="line"></span><span>or try one</span><span class="line"></span></div>
+
+          <div class="samples">
+            <button class="sample" data-id="beach" aria-label="Try sample: lifeguard tower on a beach">
+              <img src="/assets/beach.jpeg" alt="Lifeguard tower on a beach with palm trees" />
+              <div class="label">
+                <div><div class="name">Lifeguard tower</div><div class="mono" style="opacity:.85;margin-top:2px">Sample · 01</div></div>
+                <svg class="ic sm" viewBox="0 0 24 24" style="color:#fff"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+              </div>
+            </button>
+            <button class="sample" data-id="reichstag" aria-label="Try sample: glass dome of the Reichstag">
+              <img src="/assets/reichstag.jpeg" alt="Glass dome of the Reichstag building in Berlin" />
+              <div class="label">
+                <div><div class="name">Glass dome</div><div class="mono" style="opacity:.85;margin-top:2px">Sample · 02</div></div>
+                <svg class="ic sm" viewBox="0 0 24 24" style="color:#fff"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+              </div>
+            </button>
+            <button class="sample" data-id="waterfall" aria-label="Try sample: indoor waterfall in a conservatory">
+              <img src="/assets/waterfall.jpeg" alt="Indoor waterfall inside a glass conservatory" />
+              <div class="label">
+                <div><div class="name">Indoor waterfall</div><div class="mono" style="opacity:.85;margin-top:2px">Sample · 03</div></div>
+                <svg class="ic sm" viewBox="0 0 24 24" style="color:#fff"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+              </div>
+            </button>
+          </div>
+
+          <label class="upload" for="fileInput" id="uploadDrop">
+            <span class="ico"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></svg></span>
+            <span><strong>Drop or upload your own</strong> — JPG, PNG, HEIC up to 20MB</span>
+            <input id="fileInput" type="file" accept="image/*" style="display:none" />
           </label>
         </div>
       </div>
-      <div id="uploaded-image-container" style="display: none; margin-top: 1em;">
-        <img id="uploaded-image-preview" class="selectable" style="max-width: 200px; max-height: 200px;" />
-        <button id="remove-uploaded-image" style="display: block; margin-top: 0.5em;">Remove</button>
-      </div>
 
-      <button id="prompt-button">Where is this?</button>
-
-      <div id="loading-spinner" style="display: none;">Loading...</div>
-
-      <div id="response-container">
-        <h2 id="response"></h2>
-        <div id="map" style="height: 400px; width: 100%;"></div>
-        <div id="essential-links"></div>
-        <div id="area-insights"></div>
-      </div>
-
-      <div id="review-container">
-        <h3>Write a Review</h3>
-        <textarea id="prompt-text" rows="5"></textarea>
-        <button id="refine-review-button">Refine Review</button>
-      </div>
-
-      <div id="todo-container">
-        <h3>My To-Do List</h3>
-        <input type="text" id="todo-input" placeholder="Add a new task"/>
-        <button id="add-todo">Add</button>
-        <ul id="todo-list"></ul>
-      </div>
-
-      <!-- Tabs for new features -->
-      <div class="tabs">
-        <button class="tab active" data-tab="social">Social & Share</button>
-        <button class="tab" data-tab="maps">Maps Repository</button>
-        <button class="tab" data-tab="booking">Bookings</button>
-        <button class="tab" data-tab="airport">Airport Navigation</button>
-        <button class="tab" data-tab="community">Community</button>
-        <button class="tab" data-tab="content">Content Creator</button>
-        <button class="tab" data-tab="immigration">Immigration & Visas</button>
-        <button class="tab" data-tab="intelligence">Travel Intelligence</button>
-        <button class="tab" data-tab="translator">Translator</button>
-        <button class="tab" data-tab="ai-assistant">AI Assistant</button>
-      </div>
-
-      <!-- Social Sharing Tab -->
-      <div id="social-tab" class="tab-content active feature-section">
-        <h3>Share & Connect</h3>
-        <div id="social-sharing">
-          <h4>Share Location</h4>
-          <div class="social-buttons">
-            <button class="social-button facebook" id="share-facebook">Share on Facebook</button>
-            <button class="social-button twitter" id="share-twitter">Share on Twitter</button>
-            <button class="social-button instagram" id="share-instagram">Share on Instagram</button>
-            <button class="social-button whatsapp" id="share-whatsapp">Share on WhatsApp</button>
+      <div class="collage" aria-hidden="true">
+        <div class="ph p1"><img src="/assets/reichstag.jpeg" alt=""></div>
+        <div class="ph p2"><img src="/assets/beach.jpeg" alt=""></div>
+        <div class="ph p3"><img src="/assets/waterfall.jpeg" alt=""></div>
+        <div class="stamp">
+          <span class="pin"></span>
+          <div>
+            <div class="t" id="stampCount">Atlas is ready</div>
+            <div class="s">drop a photo to start</div>
           </div>
-        </div>
-        <div id="connections-section">
-          <h4>My Connections</h4>
-          <div id="connections-list"></div>
-        </div>
-      </div>
-
-      <!-- Maps Repository Tab -->
-      <div id="maps-tab" class="tab-content feature-section">
-        <h3>Saved Maps Repository</h3>
-        <div id="maps-actions">
-          <button class="btn-primary" id="save-current-map">Save Current Map</button>
-          <button class="btn-secondary" id="load-public-maps">Browse Public Maps</button>
-        </div>
-        <div id="save-map-form" style="display: none; margin-top: 1em;">
-          <input type="text" id="map-title" placeholder="Map title" />
-          <textarea id="map-description" placeholder="Description (optional)"></textarea>
-          <label><input type="checkbox" id="map-public" /> Make public</label>
-          <button class="btn-primary" id="confirm-save-map">Save</button>
-        </div>
-        <div id="saved-maps-list" class="maps-grid"></div>
-      </div>
-
-      <!-- Booking Tab -->
-      <div id="booking-tab" class="tab-content feature-section">
-        <h3>AI Booking Search - Real Price Comparison</h3>
-        <div id="booking-search-form">
-          <select id="booking-type">
-            <option value="flight">Flights</option>
-            <option value="hotel">Hotels</option>
-            <option value="bus">Buses</option>
-            <option value="train">Trains</option>
-            <option value="ferry">Ferries</option>
-            <option value="car">Car Rentals</option>
-            <option value="tour">Tours</option>
-            <option value="experience">Experiences</option>
-            <option value="event">Events</option>
-            <option value="airbnb">Airbnb</option>
-            <option value="all">All (Multi-Modal)</option>
-          </select>
-          <label><input type="checkbox" id="flexible-routes" /> Find multi-city routes (e.g., ATH→BKK→VTE)</label>
-          <label><input type="checkbox" id="find-deals" /> Include first-time deals & special offers</label>
-          <input type="text" id="booking-destination" placeholder="Destination" />
-          <input type="date" id="booking-checkin" />
-          <input type="date" id="booking-checkout" />
-          <input type="number" id="booking-passengers" placeholder="Passengers" min="1" />
-          <input type="number" id="booking-budget-min" placeholder="Min budget" />
-          <input type="number" id="booking-budget-max" placeholder="Max budget" />
-          <select id="booking-currency">
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
-            <option value="GBP">GBP</option>
-          </select>
-          <button class="btn-primary" id="search-bookings">Search Best Prices</button>
-        </div>
-        <div id="booking-results" class="booking-results"></div>
-      </div>
-
-      <!-- Community Tab -->
-      <div id="community-tab" class="tab-content feature-section">
-        <h3>Community</h3>
-        <div class="tabs">
-          <button class="tab active" data-subtab="forum">Forum</button>
-          <button class="tab" data-subtab="reviews">Reviews</button>
-          <button class="tab" data-subtab="messages">Messages</button>
-          <button class="tab" data-subtab="ai-chat">AI Chat</button>
-        </div>
-        
-        <div id="forum-section" class="tab-content active">
-          <h4>Travel Forum</h4>
-          <button class="btn-primary" id="create-post-btn">Create Post</button>
-          <div id="forum-posts"></div>
-        </div>
-        
-        <div id="reviews-section" class="tab-content">
-          <h4>Write a Review</h4>
-          <input type="text" id="review-location" placeholder="Location" />
-          <input type="number" id="review-rating" placeholder="Rating (1-5)" min="1" max="5" />
-          <input type="text" id="review-title" placeholder="Title" />
-          <textarea id="review-content" placeholder="Your review"></textarea>
-          <button class="btn-primary" id="submit-review">Submit Review</button>
-          <div id="reviews-list"></div>
-        </div>
-        
-        <div id="messages-section" class="tab-content">
-          <h4>Messages</h4>
-          <div id="messages-list"></div>
-        </div>
-        
-        <div id="ai-chat-section" class="tab-content">
-          <h4>Chat with AI Assistant</h4>
-          <div id="ai-chat-messages"></div>
-          <input type="text" id="ai-chat-input" placeholder="Ask me anything about travel..." />
-          <button class="btn-primary" id="send-ai-message">Send</button>
-        </div>
-      </div>
-
-      <!-- Content Creator Tab -->
-      <div id="content-tab" class="tab-content feature-section">
-        <h3>Social Media Content Creator</h3>
-        <div id="content-creator-form">
-          <select id="content-platform">
-            <option value="instagram">Instagram</option>
-            <option value="facebook">Facebook</option>
-            <option value="twitter">Twitter</option>
-            <option value="tiktok">TikTok</option>
-          </select>
-          <input type="file" id="content-media" multiple accept="image/*,video/*" />
-          <input type="text" id="content-style" placeholder="Style (e.g., modern, vibrant)" />
-          <button class="btn-primary" id="generate-content-btn">Generate Content</button>
-        </div>
-        <div id="generated-content-list"></div>
-      </div>
-
-      <!-- Immigration Tab -->
-      <div id="immigration-tab" class="tab-content feature-section">
-        <h3>Immigration & Visa Information</h3>
-        <div id="visa-search-form">
-          <input type="text" id="visa-country" placeholder="Destination Country" />
-          <input type="text" id="visa-nationality" placeholder="Your Nationality (optional)" />
-          <button class="btn-primary" id="get-visa-info">Get Visa Information</button>
-        </div>
-        <div id="visa-info-display"></div>
-        <div id="immigration-info-display"></div>
-      </div>
-
-      <!-- Travel Intelligence Tab -->
-      <div id="intelligence-tab" class="tab-content feature-section">
-        <h3>Travel Intelligence</h3>
-        <div id="intelligence-search-form">
-          <input type="text" id="intelligence-location" placeholder="Location (e.g., Bangkok, Thailand)" />
-          <button class="btn-primary" id="get-intelligence">Get Travel Intelligence</button>
-        </div>
-        <div id="intelligence-display">
-          <div id="scams-warnings"></div>
-          <div id="transportation-info"></div>
-          <div id="sim-card-info"></div>
-          <div id="currency-info"></div>
-          <div id="cultural-info"></div>
-        </div>
-      </div>
-
-      <!-- Airport Navigation Tab -->
-      <div id="airport-tab" class="tab-content feature-section">
-        <h3>Airport Navigation & Real-Time Updates</h3>
-        
-        <div id="airport-search-form">
-          <input type="text" id="airport-code" placeholder="Airport Code (e.g., BKK, JFK)" />
-          <input type="text" id="flight-number" placeholder="Flight Number (optional)" />
-          <button class="btn-primary" id="load-airport-info">Load Airport Info</button>
-        </div>
-
-        <div id="notification-preferences" style="margin-top: 1em;">
-          <h4>Get Updates Via:</h4>
-          <label><input type="checkbox" id="notify-whatsapp" /> WhatsApp</label>
-          <input type="tel" id="whatsapp-number" placeholder="WhatsApp number" style="display: none;" />
-          <label><input type="checkbox" id="notify-telegram" /> Telegram</label>
-          <input type="text" id="telegram-chat-id" placeholder="Telegram Chat ID" style="display: none;" />
-          <label><input type="checkbox" id="notify-sms" /> SMS</label>
-          <input type="tel" id="sms-number" placeholder="SMS number" style="display: none;" />
-          <label><input type="checkbox" id="notify-email" /> Email</label>
-          <input type="email" id="email-address" placeholder="Email address" style="display: none;" />
-          <button class="btn-secondary" id="save-notification-preferences">Save Preferences</button>
-        </div>
-
-        <div id="airport-info-display" style="margin-top: 1em;">
-          <div id="airport-alerts"></div>
-          <div id="journey-timeline"></div>
-          <div id="gate-info"></div>
-          <div id="wait-times">
-            <h4>Wait Times</h4>
-            <div id="security-wait"></div>
-            <div id="passport-wait"></div>
-            <div id="luggage-wait"></div>
-          </div>
-          <div id="walking-times">
-            <h4>Walking Times</h4>
-            <div id="entrance-to-gate"></div>
-            <div id="checkin-to-gate"></div>
-          </div>
-          <div id="airport-facilities">
-            <h4>Facilities</h4>
-            <div id="lounges"></div>
-            <div id="smoking-areas"></div>
-            <div id="accessibility"></div>
-          </div>
-          <div id="airport-map-container">
-            <h4>Airport Map</h4>
-            <button class="btn-secondary" id="download-airport-map">Download Map</button>
-            <div id="airport-map" style="height: 400px; width: 100%; margin-top: 1em;"></div>
-          </div>
-        </div>
-
-        <div id="assistance-booking" style="margin-top: 1em;">
-          <h4>Book Assistance</h4>
-          <select id="assistance-type">
-            <option value="wheelchair">Wheelchair</option>
-            <option value="assistance">General Assistance</option>
-            <option value="both">Both</option>
-          </select>
-          <input type="text" id="assistance-name" placeholder="Name" />
-          <input type="tel" id="assistance-phone" placeholder="Phone" />
-          <input type="email" id="assistance-email" placeholder="Email" />
-          <button class="btn-primary" id="book-assistance">Book Assistance</button>
-        </div>
-
-        <div id="community-edits" style="margin-top: 1em;">
-          <h4>Community Updates</h4>
-          <p>Help improve airport information by submitting updates:</p>
-          <select id="edit-type">
-            <option value="walking-time">Walking Time</option>
-            <option value="route">Route</option>
-            <option value="facility">Facility</option>
-            <option value="elevator">Elevator/Escalator</option>
-            <option value="accessibility">Accessibility</option>
-          </select>
-          <textarea id="edit-description" placeholder="Describe the update..."></textarea>
-          <button class="btn-secondary" id="submit-edit">Submit Update</button>
-        </div>
-      </div>
-
-      <!-- Translator Tab -->
-      <div id="translator-tab" class="tab-content feature-section">
-        <h3>AI Live Translator</h3>
-        <div id="translator-form">
-          <input type="text" id="translate-text" placeholder="Enter text to translate" />
-          <select id="target-language">
-            <option value="th">Thai</option>
-            <option value="es">Spanish</option>
-            <option value="fr">French</option>
-            <option value="de">German</option>
-            <option value="it">Italian</option>
-            <option value="zh">Chinese</option>
-            <option value="ja">Japanese</option>
-            <option value="ko">Korean</option>
-            <option value="ar">Arabic</option>
-            <option value="hi">Hindi</option>
-          </select>
-          <button class="btn-primary" id="translate-btn">Translate</button>
-          <button class="btn-secondary" id="translate-voice-btn">Translate with Voice</button>
-        </div>
-        <div id="translation-result"></div>
-        <div id="learn-phrases">
-          <h4>Learn Useful Phrases</h4>
-          <select id="phrase-category">
-            <option value="greetings">Greetings</option>
-            <option value="directions">Directions</option>
-            <option value="food">Food & Dining</option>
-            <option value="emergency">Emergency</option>
-            <option value="shopping">Shopping</option>
-          </select>
-          <input type="text" id="phrase-location" placeholder="Location (e.g., Thailand)" />
-          <button class="btn-primary" id="learn-phrases-btn">Learn Phrases</button>
-          <div id="phrases-list"></div>
-        </div>
-      </div>
-
-      <!-- AI Assistant Tab -->
-      <div id="ai-assistant-tab" class="tab-content feature-section">
-        <h3>AI Assistant</h3>
-        <p>Ask me anything about travel, navigation, or the app!</p>
-        <div id="ai-assistant-chat" style="height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 1em; margin-bottom: 1em;">
-          <div class="assistant-message">
-            <strong>Assistant:</strong> Hi! I'm your travel assistant. I can help you navigate the app, answer travel questions, and provide real-time airport information. How can I help you today?
-          </div>
-        </div>
-        <div id="ai-assistant-input-container">
-          <input type="text" id="ai-assistant-input" placeholder="Ask me anything..." style="width: 70%; padding: 0.5em;" />
-          <button class="btn-primary" id="ai-assistant-send">Send</button>
-          <button class="btn-secondary" id="ai-assistant-clear">Clear</button>
         </div>
       </div>
     </div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+  </div>
+</section>
+
+<section class="stats">
+  <div class="shell stats-row">
+    <div class="stat"><div class="n">10+</div><div class="l">Booking sources compared in real time</div></div>
+    <div class="stat"><div class="n">192</div><div class="l">Countries with visa & entry guidance</div></div>
+    <div class="stat"><div class="n">11k+</div><div class="l">Airports with live wait times & gate maps</div></div>
+    <div class="stat"><div class="n">68</div><div class="l">Languages translated with voice</div></div>
+  </div>
+</section>
+
+<section class="result" id="result">
+  <div class="shell">
+    <div class="result-grid">
+      <div class="photo-frame">
+        <img id="resultImg" src="/assets/reichstag.jpeg" alt="" />
+        <div class="photo-meta">
+          <div>
+            <div style="opacity:.7">Identified from your photo</div>
+            <div id="resultMatch" style="font-family:'Instrument Serif',serif;font-size:18px;margin-top:2px">—</div>
+          </div>
+          <div class="conf">
+            <svg class="ic sm" viewBox="0 0 24 24"><path d="m5 12 5 5 9-11"/></svg>
+            <span id="resultConf">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="eyebrow"><span class="mono" id="resultCountry">—</span></div>
+        <h2 id="resultName">—</h2>
+        <div class="where">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M12 22s-7-7.5-7-13a7 7 0 0 1 14 0c0 5.5-7 13-7 13z"/><circle cx="12" cy="9" r="2.5"/></svg>
+          <span id="resultCoords">—</span>
+        </div>
+
+        <div class="facts">
+          <div class="fact"><div class="k">Local time</div><div class="v" id="factTime">—</div></div>
+          <div class="fact"><div class="k">Weather</div><div class="v" id="factWeather">—</div></div>
+          <div class="fact"><div class="k">Currency</div><div class="v" id="factCurrency">—</div></div>
+          <div class="fact"><div class="k">Language</div><div class="v" id="factLang">—</div></div>
+        </div>
+
+        <div class="row-actions" id="resultActions">
+          <button class="btn clay" id="saveToTrip">
+            <svg class="ic sm" viewBox="0 0 24 24"><path d="M12 4v16m-8-8h16"/></svg>Save to a trip
+          </button>
+          <button class="btn ghost" id="shareBtn">
+            <svg class="ic sm" viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/></svg>Share
+          </button>
+          <button class="btn ghost" id="openMapsBtn">Open in Maps</button>
+          <span class="pill good" id="visaPill" style="display:none"></span>
+        </div>
+
+        <div class="tabs">
+          <div class="tab-strip" role="tablist">
+            <button class="tab-btn active" data-tab="essentials">Essentials</button>
+            <button class="tab-btn" data-tab="getthere">Get there</button>
+            <button class="tab-btn" data-tab="entry">Visa & entry</button>
+            <button class="tab-btn" data-tab="local">Local tips</button>
+            <button class="tab-btn" data-tab="airport">At the airport</button>
+          </div>
+
+          <div class="tab-panel active" id="t-essentials">
+            <div class="insight-card">
+              <h4><svg class="ic sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M2 12h20M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>About</h4>
+              <p id="aboutText">—</p>
+              <div class="row-actions" style="margin-top:12px" id="aboutPills"></div>
+            </div>
+            <div class="insight-card">
+              <h4><svg class="ic sm" viewBox="0 0 24 24"><path d="M3 21v-7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v7"/><path d="M3 21h18"/></svg>Climate & best time</h4>
+              <ul id="climateList"></ul>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="t-getthere">
+            <div class="insight-card">
+              <h4><svg class="ic sm" viewBox="0 0 24 24"><path d="M2 16h20l-3-6h-4l-3-4H8l-3 4H2z"/></svg>Flights</h4>
+              <span class="tag" id="flightsTag">Enter origin and date below to compare</span>
+              <div class="quote-list" id="flightQuotes"></div>
+              <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <input id="originIata" placeholder="From (IATA)" style="flex:1;min-width:110px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:13px;outline:none;text-transform:uppercase" />
+                <input id="flightDate" type="date" style="padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:13px;outline:none" />
+                <button class="btn sm" id="flightSearchBtn">Find</button>
+              </div>
+            </div>
+            <div class="insight-card">
+              <h4><svg class="ic sm" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 19v2M16 19v2"/></svg>Local transit</h4>
+              <ul id="transitList"><li class="tag">Identify a place to load transit options.</li></ul>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="t-entry">
+            <div class="insight-card">
+              <h4>Visa</h4>
+              <p id="visaText">Enter your passport country code below to check.</p>
+              <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+                <input id="passportInput" placeholder="Passport ISO (US)" style="padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:13px;outline:none;text-transform:uppercase;max-width:160px" />
+                <button class="btn sm" id="visaCheckBtn">Check</button>
+              </div>
+            </div>
+            <div class="insight-card">
+              <h4>Customs, holidays & health</h4>
+              <ul id="customsList"><li class="tag">Loading…</li></ul>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="t-local">
+            <div class="insight-card">
+              <h4><svg class="ic sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 10a3 3 0 0 1 6 0c0 2-3 2.5-3 5"/><circle cx="12" cy="17" r=".5"/></svg>Good to know</h4>
+              <ul id="goodToKnow"></ul>
+            </div>
+            <div class="insight-card">
+              <h4>Watch out for</h4>
+              <div class="row-actions" id="scamPills"></div>
+              <p style="margin-top:10px" id="scamFooter"></p>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="t-airport">
+            <div class="insight-card">
+              <h4 id="airportName">Nearest airport</h4>
+              <ul id="airportInfo"><li class="tag">Loading…</li></ul>
+            </div>
+            <div class="insight-card">
+              <h4>Air quality & weather</h4>
+              <div class="row-actions" id="airportAlerts"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:48px">
+      <div class="section-head" style="margin-bottom:18px">
+        <h3>On the map</h3>
+        <div><button class="btn ghost sm" id="openFullMap">View full screen</button></div>
+      </div>
+      <div class="map-mock" id="mapMock">
+        <svg viewBox="0 0 1000 600" preserveAspectRatio="none">
+          <g stroke="rgba(21,20,15,.07)" fill="none" stroke-width="1">
+            <path d="M0,200 Q250,180 500,210 T1000,220"/>
+            <path d="M0,360 Q250,380 500,350 T1000,360"/>
+            <path d="M120,0 Q140,300 110,600"/>
+            <path d="M740,0 Q760,300 730,600"/>
+          </g>
+          <g stroke="rgba(63,92,58,.35)" fill="rgba(63,92,58,.12)">
+            <path d="M120,180 Q220,140 320,170 Q420,200 380,260 Q340,320 240,310 Q140,300 120,180z"/>
+            <path d="M640,300 Q740,260 820,290 Q900,320 870,400 Q800,460 700,430 Q620,400 640,300z"/>
+          </g>
+          <g stroke="rgba(59,110,143,.45)" fill="none" stroke-width="1.4" stroke-dasharray="3 4">
+            <path d="M120 480 Q300 460 480 290 T880 220"/>
+          </g>
+        </svg>
+        <div class="map-pin"><svg class="ic sm" viewBox="0 0 24 24" style="color:#fff;stroke-width:2"><path d="M12 22s-7-7.5-7-13a7 7 0 0 1 14 0c0 5.5-7 13-7 13z"/></svg></div>
+        <div class="map-tag"><span style="width:6px;height:6px;border-radius:50%;background:var(--clay)"></span><span id="mapName">—</span> · <span style="color:var(--muted)" id="mapSub">drop a photo</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <div class="shell">
+    <div class="section-head">
+      <h3>One assistant, every part of the trip.</h3>
+      <p class="lede">Atlas folds booking APIs, every airport map, every visa rule, and a live translator into a single conversation — so you stop juggling tabs and start traveling.</p>
+    </div>
+
+    <div class="grid-3">
+      <button class="feat" data-nav="bookings">
+        <div>
+          <div class="ico"><svg class="ic" viewBox="0 0 24 24"><path d="M2 16h20l-3-6h-4l-3-4H8l-3 4H2z"/></svg></div>
+          <h5>Compare booking sources</h5>
+          <p>Flights, hotels, trains — one search, ranked, cheapest first. Real prices via Duffel, Amadeus, Travelpayouts.</p>
+        </div>
+        <div class="meta"><span>Duffel · Amadeus · Travelpayouts · Makcorps</span><span class="arr"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg></span></div>
+      </button>
+
+      <button class="feat alt" data-nav="visas">
+        <div>
+          <div class="ico"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h6M9 12h6M9 17h4"/></svg></div>
+          <h5>Visas & immigration</h5>
+          <p>Every country, every passport. Entry rules, customs, holidays, plug shape — VisaDB + Nager.Date + REST Countries.</p>
+        </div>
+        <div class="meta"><span>192 countries · official sources</span><span class="arr"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg></span></div>
+      </button>
+
+      <button class="feat" data-nav="airports">
+        <div>
+          <div class="ico"><svg class="ic" viewBox="0 0 24 24"><path d="M2 12c2-4 6-7 10-7s8 3 10 7c-2 4-6 7-10 7s-8-3-10-7z"/><circle cx="12" cy="12" r="3"/></svg></div>
+          <h5>Live airport navigation</h5>
+          <p>Gate, wait times, walking minutes, lounge access. Push alerts you actually want.</p>
+        </div>
+        <div class="meta"><span>11k+ airports · push notifications</span><span class="arr"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg></span></div>
+      </button>
+
+      <button class="feat clay-bg" data-nav="translate">
+        <div>
+          <div class="ico"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2v6M12 22v-4M2 12h6M22 12h-4M5 5l3 3M16 16l3 3M5 19l3-3M16 8l3-3"/></svg></div>
+          <h5>Translate, with voice</h5>
+          <p>68 languages, pronunciation, and a phrase coach tuned to where you are.</p>
+        </div>
+        <div class="meta"><span>Powered by Gemini</span><span class="arr"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg></span></div>
+      </button>
+
+      <button class="feat" data-nav="community">
+        <div>
+          <div class="ico"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+          <h5>Local intelligence</h5>
+          <p>Scams, tipping, SIM cards, plug shapes. Reddit + Wikivoyage + community edits.</p>
+        </div>
+        <div class="meta"><span>AI-synthesized · ground-truth</span><span class="arr"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg></span></div>
+      </button>
+
+      <button class="feat" data-action="create-itinerary">
+        <div>
+          <div class="ico"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M3 9h18M7 21l5-4 5 4"/></svg></div>
+          <h5>Generate an itinerary</h5>
+          <p>Tell Atlas where, when, and what you like — get a day-by-day plan with map pins, packing list, carbon score.</p>
+        </div>
+        <div class="meta"><span>Gemini · Geoapify · Climatiq</span><span class="arr"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg></span></div>
+      </button>
+    </div>
+  </div>
+</section>
+
+<section class="trips" id="trips">
+  <div class="shell">
+    <div class="section-head">
+      <h3>Pick up where you left off.</h3>
+      <button class="btn ghost sm" id="newTripBtn">New trip +</button>
+    </div>
+    <div class="rail" id="tripRail">
+      <div class="empty">Sign in to save trips. They'll appear here.</div>
+    </div>
+  </div>
+</section>
+</section>
+
+<section data-route="bookings">
+  <div class="shell" style="padding:72px 0 24px">
+    <span class="eyebrow"><span class="dot"></span><span class="mono">Real prices · Duffel · Amadeus · Travelpayouts</span></span>
+    <h1 class="hero-title">Find your <span class="ital">flight.</span></h1>
+
+    <form class="booking-form" id="flightForm">
+      <label>From<input name="from" placeholder="JFK" required maxlength="3" style="text-transform:uppercase"></label>
+      <label>To<input name="to" placeholder="BER" required maxlength="3" style="text-transform:uppercase"></label>
+      <label>Date<input type="date" name="date" required></label>
+      <label>Passengers<input type="number" name="passengers" min="1" max="9" value="1"></label>
+      <label>Cabin<select name="cabinClass"><option value="economy">Economy</option><option value="premium_economy">Premium</option><option value="business">Business</option><option value="first">First</option></select></label>
+      <button class="btn clay" type="submit">Search</button>
+    </form>
+    <div class="results-list" id="bookingResults"></div>
+
+    <div class="section-head" style="margin-top:64px"><h3>Hotels</h3></div>
+    <form class="booking-form" id="hotelForm">
+      <label>City<input name="location" placeholder="Berlin" required></label>
+      <label>City code<input name="cityCode" placeholder="BER" maxlength="3" style="text-transform:uppercase"></label>
+      <label>Check-in<input type="date" name="checkIn" required></label>
+      <label>Check-out<input type="date" name="checkOut" required></label>
+      <label>Guests<input type="number" name="guests" min="1" max="9" value="2"></label>
+      <button class="btn clay" type="submit">Search</button>
+    </form>
+    <div class="results-list" id="hotelResults"></div>
+  </div>
+</section>
+
+<section data-route="airports">
+  <div class="shell" style="padding:72px 0 24px">
+    <span class="eyebrow"><span class="dot"></span><span class="mono">Live wait times · gate maps · alerts</span></span>
+    <h1 class="hero-title">At the <span class="ital">airport.</span></h1>
+    <div style="display:flex;gap:8px;max-width:520px">
+      <input id="airportInput" placeholder="Airport code (e.g. BER)" style="flex:1;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);font:inherit;text-transform:uppercase">
+      <button class="btn clay" id="airportLookup">Look up</button>
+    </div>
+    <div id="airportPanel" style="margin-top:32px"></div>
+  </div>
+</section>
+
+<section data-route="visas">
+  <div class="shell" style="padding:72px 0 24px">
+    <span class="eyebrow"><span class="dot"></span><span class="mono">VisaDB · ETIAS · Schengen</span></span>
+    <h1 class="hero-title">Visa <span class="ital">requirements.</span></h1>
+    <div class="booking-form" style="grid-template-columns:1fr 1fr auto">
+      <label>Passport (ISO)<input id="visaPassport" placeholder="US" maxlength="2" style="text-transform:uppercase"></label>
+      <label>Destination (ISO)<input id="visaDest" placeholder="DE" maxlength="2" style="text-transform:uppercase"></label>
+      <button class="btn clay" id="visaSearchBtn">Check</button>
+    </div>
+    <div id="visaPanel" style="margin-top:24px"></div>
+  </div>
+</section>
+
+<section data-route="translate">
+  <div class="shell" style="padding:72px 0 24px">
+    <span class="eyebrow"><span class="dot"></span><span class="mono">Powered by Gemini · 68 languages</span></span>
+    <h1 class="hero-title">Translate <span class="ital">on the fly.</span></h1>
+    <div class="booking-form" style="grid-template-columns:1fr 1fr auto">
+      <label>Phrase<input id="translateText" placeholder='Where is the train station?'></label>
+      <label>To<input id="translateTarget" placeholder="German" value="German"></label>
+      <button class="btn clay" id="translateBtn">Translate</button>
+    </div>
+    <div id="translatePanel" style="margin-top:24px"></div>
+  </div>
+</section>
+
+<section data-route="community">
+  <div class="shell" style="padding:72px 0 24px">
+    <span class="eyebrow"><span class="dot"></span><span class="mono">Reddit · YouTube · ground-truth</span></span>
+    <h1 class="hero-title">Local <span class="ital">intelligence.</span></h1>
+    <div class="booking-form" style="grid-template-columns:1fr auto">
+      <label>Destination<input id="communityDest" placeholder="Tokyo"></label>
+      <button class="btn clay" id="communityBtn">Get tips</button>
+    </div>
+    <div id="communityPanel" style="margin-top:24px"></div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="shell foot-grid">
+    <div>
+      <div class="brand" style="margin-bottom:16px"><span class="mark"></span><span>atlas</span></div>
+      <p class="big serif">Travel like a local. Plan like a pro.</p>
+      <p style="color:var(--muted);font-size:13px;margin-top:14px">An AI travel companion built on Gemini, Google Maps, Duffel, Amadeus, and a dozen open APIs.</p>
+    </div>
+    <div>
+      <h6>Plan</h6>
+      <a href="#discover" data-nav="discover">Identify a place</a>
+      <a href="#bookings" data-nav="bookings">Compare bookings</a>
+      <a href="#visas" data-nav="visas">Visas & entry</a>
+      <a href="#community" data-nav="community">Local intelligence</a>
+    </div>
+    <div>
+      <h6>Travel</h6>
+      <a href="#airports" data-nav="airports">Airport guides</a>
+      <a href="#translate" data-nav="translate">Live translator</a>
+      <a href="#" data-action="open-vault">Document vault</a>
+      <a href="#" data-action="open-journal">Trip journal</a>
+    </div>
+    <div>
+      <h6>Atlas</h6>
+      <a href="#" data-action="open-about">About</a>
+      <a href="https://github.com/philipposk/Travel" target="_blank" rel="noopener">Developers</a>
+      <a href="#" data-action="open-privacy">Privacy</a>
+      <a href="#" id="footerSignIn">Sign in</a>
+    </div>
+  </div>
+  <div class="shell foot-bottom">
+    <span>© 2026 Atlas Travel</span>
+    <span>Made with care · open source · MIT</span>
+  </div>
+</footer>
+
+<button class="assistant" id="assistantBtn" aria-label="Open assistant">
+  <span class="ring"></span>
+  <svg class="ic lg" viewBox="0 0 24 24" style="color:var(--paper);stroke-width:1.4">
+    <path d="M12 3v3M12 18v3M5.5 5.5l2 2M16.5 16.5l2 2M3 12h3M18 12h3M5.5 18.5l2-2M16.5 7.5l2-2"/>
+    <circle cx="12" cy="12" r="3.5"/>
+  </svg>
+</button>
+
+<aside class="assist-panel" id="assistPanel" role="dialog" aria-label="Atlas assistant">
+  <div class="assist-head">
+    <div class="av"></div>
+    <div>
+      <div class="ti">Atlas</div>
+      <div class="st" id="assistStatus">● online · Gemini</div>
+    </div>
+    <button class="x" id="closeAssist" aria-label="Close">
+      <svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="assist-body" id="assistBody">
+    <div class="msg bot">Hi — I can identify places from photos, compare flights, walk you through visas, or plan a full itinerary. What's on your mind?</div>
+  </div>
+  <div class="chips" id="assistChips">
+    <span class="chip">Cheapest flights to Bali</span>
+    <span class="chip">Visa for Japan</span>
+    <span class="chip">Plan a 5-day trip to Lisbon</span>
+  </div>
+  <form class="assist-foot" id="assistForm">
+    <input id="assistInput" placeholder="Ask Atlas anything…" autocomplete="off" />
+    <button type="submit" class="send" aria-label="Send">
+      <svg class="ic sm" viewBox="0 0 24 24" style="color:#fff;stroke-width:2"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+    </button>
+  </form>
+</aside>
+
+<div class="modal-backdrop" id="authModal">
+  <div class="modal">
+    <button class="close" id="authClose"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    <h3>Sign in to Atlas</h3>
+    <p>Save trips, sync across devices, get price-drop alerts.</p>
+    <div class="stack">
+      <button class="btn" id="authGoogle">Continue with Google</button>
+      <button class="btn ghost" id="authApple">Continue with Apple</button>
+      <button class="btn ghost" id="authFacebook">Continue with Facebook</button>
+    </div>
+  </div>
+</div>
+
+<!-- Itinerary builder sheet -->
+<div class="sheet-backdrop" id="itinFormSheet">
+  <div class="sheet" style="max-width:520px">
+    <div class="sheet-head">
+      <h3>Plan a trip</h3>
+      <button class="close" data-close="itinFormSheet"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <form class="sheet-body" id="itinForm">
+      <div class="booking-form" style="grid-template-columns:1fr 1fr">
+        <label>Destination<input name="destination" placeholder="Berlin, Germany" required></label>
+        <label>Travelers<input type="number" name="travelers" min="1" value="1" required></label>
+        <label>Start date<input type="date" name="startDate" required></label>
+        <label>End date<input type="date" name="endDate" required></label>
+        <label>Budget tier<select name="budgetTier"><option value="shoestring">Shoestring</option><option value="mid" selected>Mid</option><option value="luxury">Luxury</option></select></label>
+        <label>Currency<input name="currency" value="USD" required maxlength="3" style="text-transform:uppercase"></label>
+        <label style="grid-column:1 / -1">Interests<input name="interests" placeholder="food, history, nature" required></label>
+        <label>Pace<select name="pace"><option value="relaxed">Relaxed</option><option value="balanced" selected>Balanced</option><option value="packed">Packed</option></select></label>
+        <button class="btn clay" type="submit" style="grid-column:2">Generate</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Itinerary view sheet -->
+<div class="sheet-backdrop" id="itinViewSheet">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="itinViewTitle">Your itinerary</h3>
+      <button class="btn ghost sm" id="exportIcsBtn">Export .ics</button>
+      <button class="btn ghost sm" id="packingBtn">Packing list</button>
+      <button class="close" data-close="itinViewSheet"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="sheet-body" id="itinViewBody"></div>
+  </div>
+</div>
+
+<!-- Price watch sheet -->
+<div class="sheet-backdrop" id="watchSheet">
+  <div class="sheet" style="max-width:520px">
+    <div class="sheet-head">
+      <h3>Price watches</h3>
+      <button class="close" data-close="watchSheet"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="sheet-body" id="watchBody"></div>
+  </div>
+</div>
+
+<!-- eSIM sheet -->
+<div class="sheet-backdrop" id="esimSheet">
+  <div class="sheet" style="max-width:520px">
+    <div class="sheet-head">
+      <h3>eSIM packages</h3>
+      <button class="close" data-close="esimSheet"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="sheet-body" id="esimBody"></div>
+  </div>
+</div>
+
+<!-- Currency converter sheet -->
+<div class="sheet-backdrop" id="fxSheet">
+  <div class="sheet" style="max-width:480px">
+    <div class="sheet-head">
+      <h3>Currency converter</h3>
+      <button class="close" data-close="fxSheet"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <p style="color:var(--ink-2);margin-bottom:14px">Live mid-market rates via the European Central Bank. No fees baked in — banks and cards add their own spread.</p>
+      <div class="booking-form" style="grid-template-columns:1fr 1fr 1fr auto">
+        <label>Amount<input type="number" id="fxAmount" value="100" min="0" step="any"></label>
+        <label>From<input id="fxFrom" value="USD" maxlength="3" style="text-transform:uppercase"></label>
+        <label>To<input id="fxTo" value="EUR" maxlength="3" style="text-transform:uppercase"></label>
+        <button class="btn clay" id="fxConvert" style="align-self:end">Convert</button>
+      </div>
+      <div id="fxResult" style="margin-top:16px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Vault sheet -->
+<div class="sheet-backdrop" id="vaultSheet">
+  <div class="sheet" style="max-width:560px">
+    <div class="sheet-head">
+      <h3>Document vault</h3>
+      <button class="close" data-close="vaultSheet"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <p style="color:var(--ink-2);margin-bottom:14px">Files are encrypted on your device with a passphrase before upload. Atlas never sees the plaintext.</p>
+      <div class="booking-form" style="grid-template-columns:1fr 1fr auto">
+        <label>File<input type="file" id="vaultFile"></label>
+        <label>Passphrase<input type="password" id="vaultPass" placeholder="min 8 chars"></label>
+        <label>Kind<select id="vaultKind"><option value="passport">Passport</option><option value="visa">Visa</option><option value="ticket">Ticket</option><option value="insurance">Insurance</option><option value="vaccination">Vaccination</option><option value="id">ID</option><option value="other">Other</option></select></label>
+        <button class="btn clay" id="vaultUpload" style="grid-column:1 / -1">Encrypt & upload</button>
+      </div>
+      <div id="vaultList" style="margin-top:16px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Trip detail sheet -->
+<div class="sheet-backdrop" id="tripSheet">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="tripSheetTitle">Trip</h3>
+      <button class="close" data-close="tripSheet"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="tabs" style="border-top:0;margin-top:0">
+      <div class="tab-strip" id="tripTabs">
+        <button class="tab-btn active" data-trip-tab="overview">Overview</button>
+        <button class="tab-btn" data-trip-tab="journal">Journal</button>
+        <button class="tab-btn" data-trip-tab="group">Group</button>
+        <button class="tab-btn" data-trip-tab="email">Email</button>
+        <button class="tab-btn" data-trip-tab="geofence">Geofence</button>
+      </div>
+    </div>
+    <div class="sheet-body" id="tripSheetBody"></div>
+  </div>
+</div>
+
+<!-- Inbox sheet (imported Gmail bookings) -->
+<div class="sheet-backdrop" id="inboxSheet">
+  <div class="sheet" style="max-width:560px">
+    <div class="sheet-head">
+      <h3>Imported bookings</h3>
+      <button class="close" data-close="inboxSheet"><svg class="ic sm" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="sheet-body" id="inboxBody"></div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
 </html>

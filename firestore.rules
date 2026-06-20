@@ -1,0 +1,92 @@
+rules_version = '2';
+
+// Atlas Firestore rules. Goal: users own their own data; group trips shared by
+// uid membership. All writes require authentication.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Convenience
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Per-user space ─────────────────────────────────────────────────────
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      // Trips, bookings, itineraries, journals, vault meta, priceWatches
+      match /trips/{tripId} {
+        allow read, write: if isOwner(uid);
+      }
+      match /bookings/{bookingId} {
+        allow read, write: if isOwner(uid);
+      }
+      match /itineraries/{itinId} {
+        allow read, write: if isOwner(uid);
+      }
+      match /journals/{tripId}/entries/{entryId} {
+        allow read, write: if isOwner(uid);
+      }
+      match /vault/{docId} {
+        // Plaintext never reaches Firestore — only meta (salt/iv/name).
+        allow read, write: if isOwner(uid);
+      }
+      match /priceWatches/{watchId} {
+        allow read, write: if isOwner(uid);
+      }
+      match /fcmTokens/{tokenId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // ── Group trips ────────────────────────────────────────────────────────
+    match /groupTrips/{tripId} {
+      function isMember() {
+        return isSignedIn()
+          && resource != null
+          && request.auth.uid in resource.data.memberUids;
+      }
+      function willBeOwner() {
+        return isSignedIn()
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.auth.uid in request.resource.data.memberUids;
+      }
+
+      allow read:   if isMember();
+      allow create: if willBeOwner();
+      allow update: if isMember()
+                    && (resource.data.ownerUid == request.auth.uid
+                        || request.resource.data.ownerUid == resource.data.ownerUid);
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      match /expenses/{expenseId} {
+        allow read:  if get(/databases/$(database)/documents/groupTrips/$(tripId)).data.memberUids.hasAny([request.auth.uid]);
+        allow write: if get(/databases/$(database)/documents/groupTrips/$(tripId)).data.memberUids.hasAny([request.auth.uid]);
+      }
+      match /invites/{inviteId} {
+        // Owner can write; invitee can read their own invite by email match.
+        allow read:  if isSignedIn() && (
+          get(/databases/$(database)/documents/groupTrips/$(tripId)).data.ownerUid == request.auth.uid
+          || resource.data.email == request.auth.token.email
+        );
+        allow write: if isSignedIn()
+                     && get(/databases/$(database)/documents/groupTrips/$(tripId)).data.ownerUid == request.auth.uid;
+      }
+    }
+
+    // ── Public read-only community data (if used later) ────────────────────
+    match /publicGuides/{guideId} {
+      allow read:  if true;
+      allow write: if false; // server only
+    }
+
+    // Deny anything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

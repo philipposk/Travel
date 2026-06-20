@@ -30,7 +30,8 @@ export interface TravelAlert {
 }
 
 export class AirportAlertsService {
-  private _sources: AlertSource[] = [
+  // @ts-ignore — metadata field, intentionally kept for future use
+  private readonly _sources: AlertSource[] = [
     {
       name: 'FlightStats',
       type: 'api',

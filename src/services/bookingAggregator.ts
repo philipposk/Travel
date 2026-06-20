@@ -79,43 +79,38 @@ export class BookingAggregator {
     return aggregated;
   }
 
-  // Search all sources in parallel
+  // Search all sources in parallel.
+  // Each category is resolved through its own named promise so the result
+  // mapping can never drift when one search is skipped (e.g. flights with no
+  // origin). Skipped categories resolve to an empty array.
   private async searchAllSources(query: BookingQuery): Promise<any> {
-    const searches: Promise<any>[] = [];
+    const wantFlights = query.type === 'flight' || query.type === 'all';
+    const wantHotels = query.type === 'hotel' || query.type === 'all';
+    const wantTransport = query.type === 'bus' || query.type === 'train' || query.type === 'ferry' || query.type === 'all';
+    const wantExperiences = query.type === 'experience' || query.type === 'all';
 
-    if (query.type === 'flight' || query.type === 'all') {
-      if (query.from) {
-        searches.push(
-          this.realAggregator.searchFlights(query.from, query.to, query.date || '', query.passengers || 1, query.flexible || false)
-        );
-      }
-    }
+    const settle = (p: Promise<any>) => p.then((v) => v).catch(() => []);
 
-    if (query.type === 'hotel' || query.type === 'all') {
-      searches.push(
-        this.realAggregator.searchHotels(query.to, query.date || '', query.returnDate || '', query.passengers || 2)
-      );
-    }
+    const flightsP = wantFlights && query.from
+      ? settle(this.realAggregator.searchFlights(query.from, query.to, query.date || '', query.passengers || 1, 'economy'))
+      : Promise.resolve([]);
 
-    if (query.type === 'bus' || query.type === 'train' || query.type === 'ferry' || query.type === 'all') {
-      // Would search transport APIs
-      searches.push(Promise.resolve([]));
-    }
+    const hotelsP = wantHotels
+      ? settle(this.realAggregator.searchHotels(query.to, query.date || '', query.returnDate || '', query.passengers || 2))
+      : Promise.resolve([]);
 
-    if (query.type === 'experience' || query.type === 'all') {
-      searches.push(
-        this.realAggregator.searchExperiences(query.to, query.date)
-      );
-    }
+    // Transport APIs are wired separately; placeholder keeps the shape stable.
+    const transportP: Promise<any> = wantTransport ? Promise.resolve([]) : Promise.resolve([]);
 
-    const results = await Promise.allSettled(searches);
-    
-    return {
-      flights: results[0]?.status === 'fulfilled' ? results[0].value : [],
-      hotels: results[1]?.status === 'fulfilled' ? results[1].value : [],
-      transport: results[2]?.status === 'fulfilled' ? results[2].value : [],
-      experiences: results[3]?.status === 'fulfilled' ? results[3].value : []
-    };
+    const experiencesP = wantExperiences
+      ? settle(this.realAggregator.searchExperiences(query.to, query.date))
+      : Promise.resolve([]);
+
+    const [flights, hotels, transport, experiences] = await Promise.all([
+      flightsP, hotelsP, transportP, experiencesP,
+    ]);
+
+    return { flights, hotels, transport, experiences };
   }
 
   // Normalize all data from different sources

@@ -1,0 +1,13 @@
+{
+  "name": "Atlas — AI travel companion",
+  "short_name": "Atlas",
+  "description": "Identify any place from a photo. Plan the whole trip — flights, visas, gates, phrases.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F6F1E7",
+  "theme_color": "#B5532A",
+  "icons": [
+    { "src": "/assets/gemini.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "categories": ["travel", "lifestyle", "navigation"]
+}

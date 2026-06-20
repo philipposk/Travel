@@ -1,13 +1,22 @@
 {
-  "name": "gemini-maps-demo",
+  "name": "atlas-travel",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "preview": "vite preview",
     "start": "npx serve dist",
-    "preview": "vite preview"
+    "typecheck": "tsc --noEmit",
+    "emulators": "firebase emulators:start",
+    "deploy": "npm run build && firebase deploy",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:rules": "firebase deploy --only firestore:rules,storage:rules,firestore:indexes",
+    "fn:build": "npm --prefix functions run build",
+    "fn:typecheck": "npm --prefix functions exec -- tsc --noEmit",
+    "fn:logs": "firebase functions:log"
   },
   "devDependencies": {
     "@types/google.maps": "^3.55.7",

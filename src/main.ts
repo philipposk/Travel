@@ -1,40 +1,38 @@
+// Atlas — frontend entry. Wires the Atlas mockup UI to the Firebase Functions
+// backend built in /functions/src/index.ts. Frontend logic only — every external
+// API call goes through httpsCallable. No keys live in client code.
 
 import { initializeApp } from "firebase/app";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  FacebookAuthProvider,
+  OAuthProvider,
+  signInWithPopup,
+  signInAnonymously,
+  signOut,
+  onAuthStateChanged,
+  type User,
+} from "firebase/auth";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { getAuth, GoogleAuthProvider, FacebookAuthProvider, TwitterAuthProvider, GithubAuthProvider, OAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { setupMultiProviderAuth } from "./authSetup";
-import { getFirestore, collection, addDoc, getDocs, query, where, doc, deleteDoc } from "firebase/firestore";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import "./style.css";
+import {
+  getFirestore,
+  collection,
+  doc,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
+  setDoc,
+  deleteDoc,
+} from "firebase/firestore";
+import { getMessaging, getToken, onMessage, isSupported as fcmSupported } from "firebase/messaging";
+import { DocumentVault, type VaultDocMeta, type DocKind } from "./services/documentVault";
+import { downloadICS, type ICSEvent } from "./services/icsExport";
+import { TripJournal, type JournalEntry } from "./services/tripJournal";
+import { GeofenceWatcher, type Geofence } from "./services/geofence";
 
-// Import feature modules
-import { SocialManager } from "./features/social";
-import { MapsRepository } from "./features/mapsRepository";
-import { BookingManager } from "./features/booking";
-import { CommunityManager } from "./features/community";
-import { ContentCreator } from "./features/contentCreator";
-import { ImmigrationManager } from "./features/immigration";
-import { ReverseImageSearchService } from "./services/reverseImageSearch";
-import { RealBookingSearchService } from "./services/bookingSearch";
-import { TravelIntelligenceService } from "./services/travelIntelligence";
-import { AITranslator } from "./services/translator";
-import { BookingAggregator } from "./services/bookingAggregator";
-import { TransportAPIs } from "./services/transportAPIs";
-import { AirportService } from "./services/airportService";
-import { NotificationService } from "./services/notificationService";
-import { AirportAlertsService } from "./services/airportAlertsService";
-import { CommunityEditor } from "./services/communityEditor";
-import { AIAssistant } from "./services/aiAssistant";
-
-// --- FIREBASE AND API INITIALIZATION ---
-
-// Initialize Firebase with error handling
-let app: any = null;
-let functions: any = null;
-let auth: any = null;
-let db: any = null;
-
-try {
+// ── Firebase init ───────────────────────────────────────────────────────────
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -44,1583 +42,1991 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-  // Check if Firebase config is valid
-  if (firebaseConfig.apiKey && firebaseConfig.projectId) {
-    app = initializeApp(firebaseConfig);
-    functions = getFunctions(app);
-    auth = getAuth(app);
-    db = getFirestore(app);
-    console.log('Firebase initialized successfully');
-  } else {
-    console.warn('Firebase config incomplete. Some features will be disabled.');
-  }
-} catch (error) {
-  console.error('Firebase initialization failed:', error);
-  console.warn('App will continue without Firebase features');
-}
-
-// Initialize Gemini AI
-let genAI: GoogleGenerativeAI | null = null;
+let app: ReturnType<typeof initializeApp> | null = null;
+let functionsReady = false;
 try {
-  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (geminiKey) {
-    genAI = new GoogleGenerativeAI(geminiKey);
-    console.log('Gemini AI initialized successfully');
-  } else {
-    console.warn('Gemini API key not found. AI features will be disabled.');
+  if (firebaseConfig.apiKey) {
+    app = initializeApp(firebaseConfig);
+    functionsReady = true;
   }
-} catch (error) {
-  console.error('Gemini AI initialization failed:', error);
+} catch (e) {
+  console.warn("Firebase init failed:", e);
 }
 
-// Initialize feature managers (with null checks)
-const socialManager = db ? new SocialManager(db) : null;
-const mapsRepository = db ? new MapsRepository(db) : null;
-const bookingManager = (db && functions) ? new BookingManager(db, functions) : null;
-const communityManager = (db && genAI) ? new CommunityManager(db, import.meta.env.VITE_GEMINI_API_KEY || '') : null;
-const contentCreator = (db && functions) ? new ContentCreator(db, functions) : null;
-const immigrationManager = (db && genAI) ? new ImmigrationManager(db, import.meta.env.VITE_GEMINI_API_KEY || '') : null;
-const reverseImageSearch = genAI ? new ReverseImageSearchService(import.meta.env.VITE_GEMINI_API_KEY || '') : null;
-const realBookingSearch = new RealBookingSearchService();
-const travelIntelligence = genAI ? new TravelIntelligenceService(genAI) : null;
-const translator = genAI ? new AITranslator(genAI) : null;
-const bookingAggregator = new BookingAggregator();
-const transportAPIs = new TransportAPIs();
-const airportService = new AirportService();
-const notificationService = new NotificationService();
-const airportAlertsService = new AirportAlertsService();
-const communityEditor = db ? new CommunityEditor(db) : null;
-const aiAssistant = genAI ? new AIAssistant(genAI) : null;
+const fn = functionsReady ? getFunctions(app!) : null;
+const auth = functionsReady ? getAuth(app!) : null;
+const db = functionsReady ? getFirestore(app!) : null;
 
-// --- UI ELEMENTS ---
-const signInButton = document.getElementById("sign-in-button");
-const signOutButton = document.getElementById("sign-out-button");
-const userInfoDiv = document.getElementById("user-info");
-const mediaSelection = document.getElementById("media-selection");
-const promptButton = document.getElementById("prompt-button");
-const responseContainer = document.getElementById("response");
-const refineReviewButton = document.getElementById("refine-review-button");
-const todoInput = document.getElementById("todo-input") as HTMLInputElement;
-const addTodoButton = document.getElementById("add-todo");
-const todoList = document.getElementById("todo-list");
-const essentialLinksContainer = document.getElementById("essential-links");
-const areaInsightsContainer = document.getElementById("area-insights");
-const reviewText = document.getElementById("prompt-text") as HTMLTextAreaElement;
-const mapContainer = document.getElementById("map");
-const loadingSpinner = document.getElementById("loading-spinner");
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector<T>(s);
+const $$ = <T extends HTMLElement = HTMLElement>(s: string) =>
+  Array.from(document.querySelectorAll<T>(s));
 
-let selectedMedia: HTMLImageElement | null = null;
-let map: google.maps.Map;
-let marker: google.maps.Marker;
-
-// --- AUTHENTICATION ---
-
-// Create all providers
-const googleProvider = new GoogleAuthProvider();
-const facebookProvider = new FacebookAuthProvider();
-const twitterProvider = new TwitterAuthProvider();
-const githubProvider = new GithubAuthProvider();
-const appleProvider = new OAuthProvider('apple.com');
-
-// Multi-provider sign in
-async function signInWithProvider(provider: any, providerName: string) {
-  if (!auth) {
-    alert('Firebase authentication is not configured. Please check your .env.local file.');
-    return;
-  }
-  try {
-    await signInWithPopup(auth, provider);
-    console.log(`Signed in with ${providerName}`);
-  } catch (error: any) {
-    console.error(`Error signing in with ${providerName}:`, error);
-    alert(`Sign in with ${providerName} failed: ${error.message}`);
-  }
+function call<TIn, TOut>(name: string, data: TIn): Promise<TOut> {
+  if (!fn) return Promise.reject(new Error("Firebase not configured. Add VITE_FIREBASE_* keys to .env.local"));
+  return httpsCallable<TIn, TOut>(fn, name)(data).then((r) => r.data);
 }
 
-// Email/Password sign in
-async function signInWithEmail() {
-  if (!auth) {
-    alert('Firebase authentication is not configured.');
-    return;
-  }
-  const email = (document.getElementById('email-input') as HTMLInputElement)?.value;
-  const password = (document.getElementById('password-input') as HTMLInputElement)?.value;
-  
-  if (!email || !password) {
-    alert('Please enter email and password');
-    return;
-  }
-  
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-  } catch (error: any) {
-    console.error('Email sign-in failed:', error);
-    alert(`Sign in failed: ${error.message}`);
-  }
+// A real (non-anonymous) signed-in user, or null. Anonymous sessions exist only
+// to give callable functions an auth context; they shouldn't unlock personal
+// features like saved trips, the vault, or group trips.
+function realUser() {
+  const u = auth?.currentUser;
+  return u && !u.isAnonymous ? u : null;
 }
 
-// Email/Password sign up
-async function signUpWithEmail() {
-  if (!auth) {
-    alert('Firebase authentication is not configured.');
-    return;
-  }
-  const email = (document.getElementById('email-input') as HTMLInputElement)?.value;
-  const password = (document.getElementById('password-input') as HTMLInputElement)?.value;
-  
-  if (!email || !password) {
-    alert('Please enter email and password');
-    return;
-  }
-  
-  try {
-    await createUserWithEmailAndPassword(auth, email, password);
-  } catch (error: any) {
-    console.error('Email sign-up failed:', error);
-    alert(`Sign up failed: ${error.message}`);
-  }
+function toast(message: string, kind: "ok" | "err" | "info" = "info") {
+  const wrap = $("#toastWrap")!;
+  const el = document.createElement("div");
+  el.className = `toast ${kind === "err" ? "err" : kind === "ok" ? "ok" : ""}`;
+  el.textContent = message;
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 4500);
 }
 
-// Legacy function for backward compatibility
-async function signIn() {
-  await signInWithProvider(googleProvider, 'Google');
+// Escape any string that originates outside our own code before it is placed
+// into an HTML template string. Third-party API text (Reddit/YouTube titles,
+// Gemini-synthesised copy, VisaDB notes, translations) is untrusted and would
+// otherwise be a stored-XSS vector when injected via innerHTML/insertAdjacentHTML.
+function esc(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
-async function doSignOut() {
-  if (!auth) return;
-  try {
-    await signOut(auth);
-    if(todoList) todoList.innerHTML = ""; // Clear the list on sign out
-  } catch (error) {
-    console.error("Error signing out: ", error);
-  }
+// Only allow http(s) links from third-party data into href attributes. Anything
+// else (javascript:, data:, etc.) collapses to "#" so a malicious booking URL
+// can't run script on click.
+function safeUrl(u: unknown): string {
+  const s = String(u ?? "").trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  return "#";
 }
 
-// Setup auth state listener only if auth is available
-if (auth) {
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    // User is signed in
-    if(userInfoDiv) userInfoDiv.innerHTML = `Welcome, ${user.displayName || user.email}!`;
-    // Hide all auth buttons
-    document.getElementById('auth-buttons')?.setAttribute('style', 'display: none;');
-    document.getElementById('email-auth')?.setAttribute('style', 'display: none;');
-    if(signInButton) signInButton.style.display = 'none';
-    if(signOutButton) signOutButton.style.display = 'block';
-    if (db) loadTodos(user);
-  } else {
-    // User is signed out
-    if(userInfoDiv) userInfoDiv.innerHTML = '';
-    // Show all auth buttons
-    document.getElementById('auth-buttons')?.setAttribute('style', 'display: block;');
-    document.getElementById('email-auth')?.setAttribute('style', 'display: block; margin-top: 1em;');
-    if(signInButton) signInButton.style.display = 'block';
-    if(signOutButton) signOutButton.style.display = 'none';
-  }
-});
-} else {
-  // Show message if Firebase not configured
-  if(userInfoDiv) userInfoDiv.innerHTML = 'Firebase not configured. Sign in disabled.';
-  if(signInButton) signInButton.style.display = 'none';
+// For <img src>: also permit data:image and blob: (used by locally captured
+// covers) but still block javascript:/other schemes.
+function safeImgUrl(u: unknown): string {
+  const s = String(u ?? "").trim();
+  if (/^https?:\/\//i.test(s) || /^data:image\//i.test(s) || /^blob:/i.test(s)) return s;
+  return "";
 }
 
-// Event listeners will be attached in DOMContentLoaded
-
-// --- MAP FUNCTIONS ---
-
-function loadGoogleMapsScript() {
-  const mapsApiKey = import.meta.env.VITE_MAPS_API_KEY;
-  if (!mapsApiKey) {
-    console.error("VITE_MAPS_API_KEY is not set. The map cannot be loaded.");
-    return;
-  }
-
-  const script = document.createElement('script');
-  script.src = `https://maps.googleapis.com/maps/api/js?key=${mapsApiKey}&callback=initMap&libraries=maps,marker&v=beta`;
-  script.async = true;
-  script.defer = true;
-  window.initMap = initMap; // Make initMap globally available
-  document.head.appendChild(script);
-}
-
-async function initMap(center?: google.maps.LatLngLiteral) {
-  const { Map } = await google.maps.importLibrary("maps") as google.maps.MapsLibrary;
-  const { Marker } = await google.maps.importLibrary("marker") as google.maps.MarkerLibrary;
-
-  if (mapContainer) {
-    map = new Map(mapContainer, {
-      center: center || { lat: 0, lng: 0 },
-      zoom: center ? 12 : 2,
-      mapId: "DEMO_MAP_ID",
+// Accessible replacements for the native window.confirm / window.prompt, which
+// are unstyled, block the main thread, are often suppressed by popup blockers,
+// and are awkward for screen-reader / keyboard users. These render a focus-
+// trapped dialog and resolve a Promise.
+type DialogOpts = { title: string; message?: string; confirmText?: string; cancelText?: string; input?: { label: string; type?: "text" | "password"; placeholder?: string } };
+function uiDialog(opts: DialogOpts): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "ui-dialog-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", opts.title);
+    overlay.innerHTML = `
+      <div class="ui-dialog">
+        <h4>${esc(opts.title)}</h4>
+        ${opts.message ? `<p>${esc(opts.message)}</p>` : ""}
+        ${opts.input ? `<label class="ui-dialog-field">${esc(opts.input.label)}<input type="${opts.input.type || "text"}" placeholder="${esc(opts.input.placeholder || "")}" autocomplete="${opts.input.type === "password" ? "current-password" : "off"}"></label>` : ""}
+        <div class="ui-dialog-actions">
+          <button class="btn ghost" data-d="cancel">${esc(opts.cancelText || "Cancel")}</button>
+          <button class="btn clay" data-d="ok">${esc(opts.confirmText || "Confirm")}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector<HTMLInputElement>("input");
+    const prev = document.activeElement as HTMLElement | null;
+    (input || overlay.querySelector<HTMLButtonElement>('[data-d="ok"]'))?.focus();
+    const close = (val: string | null) => {
+      overlay.remove();
+      prev?.focus?.();
+      resolve(val);
+    };
+    overlay.addEventListener("click", (e) => {
+      const t = e.target as HTMLElement;
+      if (t === overlay) return close(null);
+      const act = t.closest<HTMLElement>("[data-d]")?.dataset.d;
+      if (act === "cancel") close(null);
+      if (act === "ok") close(input ? input.value : "ok");
     });
-    marker = new Marker({
-        map: map,
-        position: center
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") close(null);
+      if (e.key === "Enter" && input) { e.preventDefault(); close(input.value); }
     });
+  });
+}
+function uiConfirm(title: string, message?: string, confirmText = "Confirm"): Promise<boolean> {
+  return uiDialog({ title, message, confirmText }).then((v) => v !== null);
+}
+function uiPrompt(title: string, label: string, type: "text" | "password" = "text"): Promise<string | null> {
+  return uiDialog({ title, input: { label, type } });
+}
+
+function fileToBase64(file: File): Promise<{ data: string; mime: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const m = result.match(/^data:([^;]+);base64,(.+)$/);
+      if (!m) return reject(new Error("Bad file"));
+      resolve({ mime: m[1], data: m[2] });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function urlToBase64(url: string): Promise<{ data: string; mime: string }> {
+  return fetch(url)
+    .then((r) => {
+      if (!r.ok) throw new Error(`Fetch ${r.status}`);
+      const mime = r.headers.get("content-type") || "image/jpeg";
+      return r.blob().then((blob) => ({ blob, mime }));
+    })
+    .then(
+      ({ blob, mime }) =>
+        new Promise<{ data: string; mime: string }>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(reader.error);
+          reader.onload = () => {
+            const result = String(reader.result || "");
+            const m = result.match(/^data:[^;]+;base64,(.+)$/);
+            if (!m) return reject(new Error("Bad data"));
+            resolve({ data: m[1], mime });
+          };
+          reader.readAsDataURL(blob);
+        })
+    );
+}
+
+// ── Types ───────────────────────────────────────────────────────────────────
+interface IdentifyResult {
+  name: string; shortMatch: string; country: string; countryCode: string;
+  region: string; city: string; district?: string | null;
+  lat: number; lon: number; confidence: number;
+  description: string; iataAirport?: string | null;
+}
+
+interface FlightResult {
+  id: string; offerId?: string; segments: Array<{
+    from: string; to: string; airline: string; flightNumber: string;
+    departure: string; arrival: string; duration: string;
+  }>;
+  totalPrice: number; currency: string; totalDuration: string; layovers: number;
+  source: string; bookingUrl?: string;
+}
+
+interface HotelResult {
+  id: string; name: string; location: string; price: number; currency: string;
+  rating: number; reviews: number; source: string; url: string;
+}
+
+interface DestinationIntel {
+  destination: string;
+  geo: { lat: number; lon: number; formatted: string; country: string; countryCode: string } | null;
+  weather: Array<{ date: string; tempMaxC: number; tempMinC: number; precipMm: number; weatherCode: number }>;
+  climate: Array<{ month: number; avgTempC: number; precipMm: number }>;
+  airQuality: { aqi: number; level: string; pollutant: string; updatedAt: string } | null;
+  publicHolidays: Array<{ date: string; localName: string; name: string }>;
+  countryFacts: {
+    name: string; capital: string[]; currencies: Record<string, { name: string; symbol: string }>;
+    languages: Record<string, string>; callingCode: string;
+  } | null;
+  staticFacts: { plugs?: string[]; voltage?: string; tapWaterSafe?: boolean; tippingPercent?: string; emergency?: Record<string, string>; driving?: string };
+  wikivoyage: { extract: string; url: string; thumbnail?: string } | null;
+  visa: { status: string; durationDays?: number; notes?: string } | null;
+  carbon: { co2Kg: number } | null;
+  timezone: { timezone: string; utcOffsetSeconds: number } | null;
+}
+
+// ── Router ──────────────────────────────────────────────────────────────────
+type Route = "discover" | "bookings" | "airports" | "visas" | "translate" | "community";
+
+function go(route: Route) {
+  $$("[data-route]").forEach((el) => el.classList.toggle("active", el.getAttribute("data-route") === route));
+  $$<HTMLAnchorElement>("nav.primary a").forEach((a) => a.classList.toggle("active", a.dataset.nav === route));
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  history.replaceState(null, "", `#${route}`);
+}
+
+function initRouter() {
+  document.body.addEventListener("click", (ev) => {
+    const t = (ev.target as HTMLElement).closest<HTMLElement>("[data-nav]");
+    if (t && t.dataset.nav) {
+      ev.preventDefault();
+      go(t.dataset.nav as Route);
+    }
+    const a = (ev.target as HTMLElement).closest<HTMLElement>("[data-action]");
+    if (a && a.dataset.action) {
+      // Action anchors carry href="#" for keyboard/right-click affordance; stop
+      // the hash navigation that would otherwise jump the page to the top.
+      if (a.tagName === "A") ev.preventDefault();
+      handleAction(a.dataset.action);
+    }
+  });
+  const initial = (location.hash.replace("#", "") || "discover") as Route;
+  if (["discover", "bookings", "airports", "visas", "translate", "community"].includes(initial)) go(initial);
+}
+
+function handleAction(action: string) {
+  if (action === "create-itinerary" || action === "open-itinerary-form") {
+    openItinForm();
+  } else if (action === "open-vault") {
+    openSheet("vaultSheet"); refreshVaultList();
+  } else if (action === "open-journal") {
+    toast("Trip journal opens once you have an active trip.", "info");
+  } else if (action === "open-watches") {
+    openSheet("watchSheet"); refreshWatchList();
+  } else if (action === "open-esim") {
+    openSheet("esimSheet"); refreshEsim();
+  } else if (action === "open-fx") {
+    openSheet("fxSheet"); initFxOnce();
+  } else if (action === "open-inbox") {
+    openSheet("inboxSheet"); refreshInbox();
+  } else if (action === "open-about") {
+    uiDialog({
+      title: "About Atlas",
+      message: "Atlas turns a single photo into a whole trip: identify any place, then plan flights, visas, gate info, local phrases and the scams to avoid. Built on Gemini, Google Maps, Duffel, Amadeus and a dozen open travel APIs.",
+      confirmText: "Got it", cancelText: "Close",
+    });
+  } else if (action === "open-privacy") {
+    uiDialog({
+      title: "Privacy",
+      message: "Your trips, documents and journal stay in your own account. Vault files are encrypted in your browser before upload — we never see the contents. Gmail import only reads travel confirmations, in real time, and is never stored beyond the parsed booking. No data is sold.",
+      confirmText: "Got it", cancelText: "Close",
+    });
+  }
+  closeToolsMenu();
+}
+
+function openSheet(id: string) { $(`#${id}`)!.classList.add("is-open"); }
+function closeSheet(id: string) { $(`#${id}`)!.classList.remove("is-open"); }
+function closeToolsMenu() {
+  const m = $("#toolsMenu");
+  if (m) m.style.display = "none";
+  $("#toolsBtn")?.setAttribute("aria-expanded", "false");
+}
+
+// ── Identify flow ───────────────────────────────────────────────────────────
+let currentIdentified: IdentifyResult | null = null;
+
+// Disable the identify controls while a request is in flight so a user can't
+// fire several overlapping calls (whose responses would arrive out of order).
+function setIdentifyBusy(busy: boolean) {
+  const btn = $<HTMLButtonElement>("#identifyBtn");
+  if (btn) btn.disabled = busy;
+  $$<HTMLButtonElement>(".sample").forEach((b) => { b.disabled = busy; });
+}
+
+async function identifyFromImage(opts: { url?: string; file?: File; hint?: string }) {
+  const result = $("#result")!;
+  $("#resultMatch")!.textContent = "Identifying…";
+  $("#resultConf")!.textContent = "Analyzing";
+  result.classList.add("is-open");
+  setIdentifyBusy(true);
+  setTimeout(() => window.scrollTo({ top: result.offsetTop - 56, behavior: "smooth" }), 40);
+
+  try {
+    let payload: { data: string; mime: string };
+    let displayUrl: string;
+    if (opts.file) {
+      payload = await fileToBase64(opts.file);
+      displayUrl = URL.createObjectURL(opts.file);
+    } else if (opts.url) {
+      payload = await urlToBase64(opts.url);
+      displayUrl = opts.url;
+    } else {
+      throw new Error("No image provided");
+    }
+    $<HTMLImageElement>("#resultImg")!.src = displayUrl;
+
+    const r = await call<{ imageBase64: string; mimeType: string; hint?: string }, IdentifyResult>(
+      "identifyPlaceFromImage",
+      { imageBase64: payload.data, mimeType: payload.mime, hint: opts.hint }
+    );
+    paintIdentify(r);
+    loadIntelAndPaint(r);
+  } catch (e) {
+    console.error(e);
+    $("#resultMatch")!.textContent = "Couldn't identify this one";
+    $("#resultConf")!.textContent = "0%";
+    toast(`Identify failed: ${(e as Error).message}`, "err");
+  } finally {
+    setIdentifyBusy(false);
   }
 }
 
-// --- FILE UPLOAD HANDLING ---
-function setupFileUpload() {
-  const imageUpload = document.getElementById("image-upload") as HTMLInputElement;
-  const uploadedImageContainer = document.getElementById("uploaded-image-container");
-  const uploadedImagePreview = document.getElementById("uploaded-image-preview") as HTMLImageElement;
-  const removeUploadedImage = document.getElementById("remove-uploaded-image");
-  const uploadCard = document.getElementById("upload-card");
+async function identifyFromText(text: string) {
+  const result = $("#result")!;
+  result.classList.add("is-open");
+  $<HTMLImageElement>("#resultImg")!.src = "/assets/reichstag.jpeg";
+  $("#resultMatch")!.textContent = `Searching for "${text}"…`;
+  $("#resultConf")!.textContent = "Thinking";
+  setIdentifyBusy(true);
+  setTimeout(() => window.scrollTo({ top: result.offsetTop - 56, behavior: "smooth" }), 40);
+  try {
+    const r = await call<{ description: string }, IdentifyResult>("identifyPlaceFromText", {
+      description: text,
+    });
+    paintIdentify(r);
+    loadIntelAndPaint(r);
+  } catch (e) {
+    // Surface failure in the panel itself, not just a toast, so the stale
+    // placeholder match/name don't read as a successful result.
+    $("#resultMatch")!.textContent = "Couldn't find that place";
+    $("#resultConf")!.textContent = "0%";
+    toast(`Search failed: ${(e as Error).message}`, "err");
+  } finally {
+    setIdentifyBusy(false);
+  }
+}
 
-  // Handle file selection
-  if (imageUpload) {
-    imageUpload.addEventListener("change", (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file && file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const imageUrl = event.target?.result as string;
-          if (uploadedImagePreview) {
-            uploadedImagePreview.src = imageUrl;
-            uploadedImagePreview.dataset.uploaded = "true";
-          }
-          if (uploadedImageContainer) {
-            uploadedImageContainer.style.display = "block";
-          }
-          
-          // Auto-select uploaded image
-if (mediaSelection) {
-            mediaSelection.querySelectorAll("img, .upload-card").forEach((el) => 
-              el.classList.remove("selected")
-            );
-            uploadedImagePreview.classList.add("selected");
-            selectedMedia = uploadedImagePreview;
-          }
-        };
-        reader.readAsDataURL(file);
+function paintIdentify(r: IdentifyResult) {
+  currentIdentified = r;
+  $("#resultMatch")!.textContent = r.shortMatch;
+  $("#resultConf")!.textContent = `${Math.round(r.confidence)}% match`;
+  $("#resultName")!.textContent = r.name;
+  $("#resultCountry")!.textContent = `${r.country} · ${r.region}`;
+  const latDir = r.lat >= 0 ? "N" : "S";
+  const lonDir = r.lon >= 0 ? "E" : "W";
+  $("#resultCoords")!.textContent = [
+    `${Math.abs(r.lat).toFixed(4)}° ${latDir}, ${Math.abs(r.lon).toFixed(4)}° ${lonDir}`,
+    r.district || r.city,
+  ].filter(Boolean).join(" · ");
+  $("#mapName")!.textContent = r.name;
+  $("#mapSub")!.textContent = `${r.city || r.country}`;
+  $("#stampCount")!.textContent = "Identified · ready to plan";
+}
+
+async function loadIntelAndPaint(r: IdentifyResult) {
+  $("#aboutText")!.textContent = r.description || "—";
+  $("#aboutPills")!.innerHTML = "";
+
+  try {
+    const intel = await call<{ destination: string }, DestinationIntel>("getDestinationIntel", {
+      destination: r.name,
+    });
+    paintIntel(intel);
+  } catch (e) {
+    console.error("intel", e);
+    toast("Couldn't load destination intel.", "err");
+  }
+}
+
+function fmtTemp(c?: number): string {
+  if (c == null) return "—";
+  return `${Math.round(c)}°`;
+}
+
+const WEATHER_CODES: Record<number, string> = {
+  0: "Clear", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+  45: "Foggy", 48: "Rime fog", 51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
+  61: "Light rain", 63: "Rain", 65: "Heavy rain",
+  71: "Light snow", 73: "Snow", 75: "Heavy snow",
+  80: "Showers", 81: "Heavy showers", 82: "Violent showers",
+  95: "Thunderstorm", 96: "Thunder hail", 99: "Severe thunder",
+};
+
+function paintIntel(i: DestinationIntel) {
+  const cc = i.geo?.countryCode || "";
+  const today = i.weather?.[0];
+  // Show the destination's actual local time when we know its timezone; fall
+  // back to the viewer's clock (clearly labelled) only if we don't.
+  if (i.timezone?.timezone) {
+    const dest = new Date().toLocaleTimeString([], {
+      hour: "2-digit", minute: "2-digit", timeZone: i.timezone.timezone,
+    });
+    $("#factTime")!.innerHTML = `${esc(dest)} <small>local</small>`;
+  } else {
+    const myTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    $("#factTime")!.innerHTML = `${esc(myTime)} <small>your time</small>`;
+  }
+  $("#factWeather")!.innerHTML = today
+    ? `${fmtTemp(today.tempMaxC)} <small>${WEATHER_CODES[today.weatherCode] || "—"}</small>`
+    : "— <small>no data</small>";
+  const currency = i.countryFacts?.currencies ? Object.entries(i.countryFacts.currencies)[0] : null;
+  $("#factCurrency")!.innerHTML = currency
+    ? `${esc(currency[0])} <small>${esc(currency[1].symbol)} — ${esc(currency[1].name)}</small>`
+    : "—";
+  const lang = i.countryFacts?.languages ? Object.values(i.countryFacts.languages)[0] : null;
+  $("#factLang")!.textContent = lang ? `${lang}` : "—";
+
+  $("#visaPill")!.style.display = "none";
+
+  const pills = $("#aboutPills")!;
+  pills.innerHTML = "";
+  if (i.airQuality) {
+    const aq = i.airQuality;
+    const kind = aq.aqi <= 50 ? "good" : aq.aqi <= 100 ? "" : "warn";
+    pills.insertAdjacentHTML("beforeend", `<span class="pill ${kind}">Air ${aq.aqi} · ${aq.level}</span>`);
+  }
+  if (i.carbon) {
+    pills.insertAdjacentHTML("beforeend", `<span class="pill">CO₂ ${Math.round(i.carbon.co2Kg)}kg/flight</span>`);
+  }
+
+  if (i.wikivoyage?.extract) {
+    $("#aboutText")!.textContent = i.wikivoyage.extract.slice(0, 360) + "…";
+  }
+
+  const climate = $("#climateList")!;
+  climate.innerHTML = "";
+  if (i.climate?.length === 12) {
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const best = [...i.climate].sort((a, b) => Math.abs(22 - a.avgTempC) - Math.abs(22 - b.avgTempC)).slice(0, 3);
+    climate.insertAdjacentHTML("beforeend", `<li>Best time: <strong>${best.map((m) => months[m.month - 1]).join(", ")}</strong></li>`);
+    const hottest = i.climate.reduce((a, b) => (b.avgTempC > a.avgTempC ? b : a));
+    const coldest = i.climate.reduce((a, b) => (b.avgTempC < a.avgTempC ? b : a));
+    climate.insertAdjacentHTML("beforeend", `<li>Warmest: ${months[hottest.month - 1]} avg <strong>${Math.round(hottest.avgTempC)}°</strong></li>`);
+    climate.insertAdjacentHTML("beforeend", `<li>Coolest: ${months[coldest.month - 1]} avg <strong>${Math.round(coldest.avgTempC)}°</strong></li>`);
+  } else {
+    climate.insertAdjacentHTML("beforeend", "<li class='tag'>No climate data yet.</li>");
+  }
+
+  const customs = $("#customsList")!;
+  customs.innerHTML = "";
+  if (i.publicHolidays?.length) {
+    // Compare on local midnight so a holiday happening today isn't dropped by a
+    // UTC-parsed timestamp landing "before" the current instant.
+    const todayKey = new Date();
+    todayKey.setHours(0, 0, 0, 0);
+    const upcoming = i.publicHolidays
+      .filter((h) => {
+        const [y, m, d] = String(h.date).split("-").map(Number);
+        return new Date(y, (m || 1) - 1, d || 1) >= todayKey;
+      })
+      .slice(0, 4);
+    upcoming.forEach((h) => customs.insertAdjacentHTML("beforeend", `<li><strong>${esc(h.date)}</strong> — ${esc(h.localName)} (${esc(h.name)})</li>`));
+  }
+  if (cc) {
+    customs.insertAdjacentHTML("beforeend", `<li>Country code: ${esc(cc)} · Calling +${esc(i.countryFacts?.callingCode?.replace(/\+/g, "") || "—")}</li>`);
+  }
+  if (!customs.children.length) customs.insertAdjacentHTML("beforeend", "<li class='tag'>No data.</li>");
+
+  const good = $("#goodToKnow")!;
+  good.innerHTML = "";
+  const s = i.staticFacts;
+  if (s.tippingPercent) good.insertAdjacentHTML("beforeend", `<li>Tipping: <strong>${s.tippingPercent}</strong></li>`);
+  if (s.plugs) good.insertAdjacentHTML("beforeend", `<li>Plug type: <strong>${s.plugs.join(", ")}</strong> · ${s.voltage || ""}</li>`);
+  if (typeof s.tapWaterSafe === "boolean") good.insertAdjacentHTML("beforeend", `<li>Tap water: <strong>${s.tapWaterSafe ? "safe to drink" : "not recommended"}</strong></li>`);
+  if (s.driving) good.insertAdjacentHTML("beforeend", `<li>Drive on the <strong>${s.driving}</strong></li>`);
+  if (s.emergency) {
+    const e = s.emergency;
+    const num = e.universal || e.police || e.ambulance || "—";
+    good.insertAdjacentHTML("beforeend", `<li>Emergency: <strong>${num}</strong></li>`);
+  }
+  if (!good.children.length) good.insertAdjacentHTML("beforeend", "<li class='tag'>No data.</li>");
+
+  loadCommunitySynth(currentIdentified?.name || "");
+
+  if (currentIdentified?.iataAirport) {
+    $("#airportName")!.textContent = `${currentIdentified.iataAirport} · Nearest major airport`;
+    $("#airportInfo")!.innerHTML = `<li>IATA: <strong>${currentIdentified.iataAirport}</strong></li><li class="tag">Live wait times require gate-level data feeds (premium).</li>`;
+  }
+  const alerts = $("#airportAlerts")!;
+  alerts.innerHTML = "";
+  if (i.airQuality) {
+    const kind = i.airQuality.aqi <= 50 ? "good" : i.airQuality.aqi <= 100 ? "" : "warn";
+    alerts.insertAdjacentHTML("beforeend", `<span class="pill ${kind}">Air quality ${i.airQuality.aqi}</span>`);
+  }
+  if (today) {
+    alerts.insertAdjacentHTML("beforeend", `<span class="pill">${WEATHER_CODES[today.weatherCode] || "Weather"} ${Math.round(today.tempMaxC)}°/${Math.round(today.tempMinC)}°</span>`);
+  }
+}
+
+async function loadCommunitySynth(destination: string) {
+  if (!destination) return;
+  const pills = $("#scamPills")!;
+  const footer = $("#scamFooter")!;
+  pills.innerHTML = "";
+  footer.textContent = "Loading community tips…";
+  try {
+    const r = await call<{ location: string }, { synthesized?: { scams?: string[] } }>(
+      "scrapeTravelIntelligence",
+      { location: destination }
+    );
+    const scams = r.synthesized?.scams || [];
+    scams.slice(0, 5).forEach((s) => pills.insertAdjacentHTML("beforeend", `<span class="pill warn">${esc(s)}</span>`));
+    footer.textContent = scams.length ? "Atlas flags these in your live map as you walk." : "No notable scams flagged.";
+  } catch {
+    footer.textContent = "Community feed unavailable right now.";
+  }
+}
+
+// ── Flights / Hotels rendering ─────────────────────────────────────────────
+async function searchFlights(opts: { from: string; to: string; date: string; passengers?: number; cabinClass?: string }) {
+  return call<typeof opts, { results: FlightResult[] }>("searchFlights", opts);
+}
+
+function renderFlightQuotes(target: HTMLElement, results: FlightResult[]) {
+  target.innerHTML = "";
+  if (!results.length) {
+    target.insertAdjacentHTML("beforeend", "<div class='empty'>No flights found. Check IATA codes + date.</div>");
+    return;
+  }
+  results.slice(0, 6).forEach((f, i) => {
+    const seg = f.segments[0];
+    const tag = i === 0 ? "best" : "";
+    const stops = f.layovers === 0 ? "Direct" : `${f.layovers} stop${f.layovers > 1 ? "s" : ""}`;
+    const html = `
+      <a class="quote ${tag}" href="${esc(safeUrl(f.bookingUrl))}" target="_blank" rel="noopener">
+        <div class="src"><strong>${esc(seg?.airline || f.source)}</strong> · ${stops}<small>${esc(seg?.from)} → ${esc(seg?.to)} · ${esc(seg?.duration || f.totalDuration)}</small></div>
+        <div class="price">${esc(f.currency)} ${Math.round(f.totalPrice)}</div>
+      </a>`;
+    target.insertAdjacentHTML("beforeend", html);
+  });
+}
+
+function renderHotels(target: HTMLElement, hotels: HotelResult[]) {
+  target.innerHTML = "";
+  if (!hotels.length) {
+    target.insertAdjacentHTML("beforeend", "<div class='empty'>No hotels found. Try a different city or dates.</div>");
+    return;
+  }
+  hotels.slice(0, 12).forEach((h) => {
+    const html = `
+      <a class="quote" href="${esc(safeUrl(h.url))}" target="_blank" rel="noopener">
+        <div class="src"><strong>${esc(h.name)}</strong>${h.rating ? ` · ${"★".repeat(Math.max(0, Math.min(5, Math.round(h.rating))))}` : ""}<small>${esc(h.source)} · ${esc(h.location)}</small></div>
+        <div class="price">${esc(h.currency)} ${Math.round(h.price)}</div>
+      </a>`;
+    target.insertAdjacentHTML("beforeend", html);
+  });
+}
+
+async function searchHotels(opts: { location: string; cityCode?: string; checkIn: string; checkOut: string; guests?: number }) {
+  return call<typeof opts, { results: HotelResult[] }>("searchHotels", opts);
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+function initTabs() {
+  const strip = $(".tab-strip");
+  if (!strip) return;
+  const btns = Array.from(strip.querySelectorAll<HTMLButtonElement>(".tab-btn"));
+  const select = (btn: HTMLButtonElement) => {
+    btns.forEach((b) => {
+      const on = b === btn;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      b.tabIndex = on ? 0 : -1;
+    });
+    $$(".tab-panel").forEach((p) => p.classList.remove("active"));
+    const panel = $(`#t-${btn.dataset.tab}`);
+    panel?.classList.add("active");
+  };
+  btns.forEach((btn, idx) => {
+    // Wire up the ARIA relationships screen readers need to announce the tabs.
+    btn.setAttribute("role", "tab");
+    btn.id = btn.id || `tab-${btn.dataset.tab}`;
+    const panel = $(`#t-${btn.dataset.tab}`);
+    if (panel) {
+      panel.setAttribute("role", "tabpanel");
+      panel.setAttribute("aria-labelledby", btn.id);
+    }
+    btn.setAttribute("aria-selected", btn.classList.contains("active") ? "true" : "false");
+    btn.tabIndex = btn.classList.contains("active") ? 0 : -1;
+    btn.addEventListener("click", () => select(btn));
+    btn.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      const dir = e.key === "ArrowRight" ? 1 : -1;
+      const next = btns[(idx + dir + btns.length) % btns.length];
+      next.focus();
+      select(next);
+    });
+  });
+}
+
+// ── Samples + upload + identify input ──────────────────────────────────────
+const SAMPLES: Record<string, { url: string; hint: string }> = {
+  beach: { url: "/assets/beach.jpeg", hint: "lifeguard tower, palm trees, ocean" },
+  reichstag: { url: "/assets/reichstag.jpeg", hint: "glass cupola, Reichstag Berlin" },
+  waterfall: { url: "/assets/waterfall.jpeg", hint: "indoor waterfall, conservatory, Singapore" },
+};
+
+function initIdentify() {
+  $$<HTMLButtonElement>(".sample").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id!;
+      $$(".sample").forEach((s) => s.classList.toggle("is-active", s === btn));
+      const s = SAMPLES[id];
+      if (s) identifyFromImage({ url: s.url, hint: s.hint });
+    })
+  );
+
+  $<HTMLButtonElement>("#identifyBtn")!.addEventListener("click", () => {
+    const v = $<HTMLInputElement>("#searchInput")!.value.trim();
+    if (!v) {
+      toast("Paste an image URL or describe a place.", "info");
+      return;
+    }
+    if (/^https?:\/\//.test(v) && /\.(jpe?g|png|webp|heic)(\?|$)/i.test(v)) {
+      identifyFromImage({ url: v });
+    } else {
+      identifyFromText(v);
+    }
+  });
+  $<HTMLInputElement>("#searchInput")!.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $<HTMLButtonElement>("#identifyBtn")!.click();
+  });
+
+  const drop = $("#uploadDrop")!;
+  const fileInput = $<HTMLInputElement>("#fileInput")!;
+  // Guard against non-image files (and absurdly large ones) before we waste a
+  // base64 encode + an upload round-trip.
+  const acceptImage = (f: File): boolean => {
+    if (!f.type.startsWith("image/")) { toast("That's not an image file.", "err"); return false; }
+    if (f.size > 20 * 1024 * 1024) { toast("Image is over 20MB.", "err"); return false; }
+    return true;
+  };
+  fileInput.addEventListener("change", () => {
+    const f = fileInput.files?.[0];
+    if (f && acceptImage(f)) identifyFromImage({ file: f });
+  });
+  ["dragover", "dragenter"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => {
+      e.preventDefault();
+      drop.classList.add("dragging");
+    })
+  );
+  ["dragleave", "drop"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => {
+      e.preventDefault();
+      drop.classList.remove("dragging");
+    })
+  );
+  drop.addEventListener("drop", (e) => {
+    const f = (e as DragEvent).dataTransfer?.files?.[0];
+    if (f && acceptImage(f)) identifyFromImage({ file: f });
+  });
+}
+
+// ── Result panel side-actions ──────────────────────────────────────────────
+function initResultActions() {
+  $("#openMapsBtn")!.addEventListener("click", () => {
+    if (!currentIdentified) return;
+    const url = `https://www.google.com/maps/search/?api=1&query=${currentIdentified.lat},${currentIdentified.lon}`;
+    window.open(url, "_blank", "noopener");
+  });
+  $("#shareBtn")!.addEventListener("click", async () => {
+    if (!currentIdentified) return;
+    const url = location.href.split("#")[0];
+    const text = `Atlas identified ${currentIdentified.name}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: "Atlas", text, url }); } catch { /* dismissed */ }
+    } else {
+      await navigator.clipboard.writeText(`${text} — ${url}`);
+      toast("Link copied", "ok");
+    }
+  });
+  $("#saveToTrip")!.addEventListener("click", async () => {
+    const u = realUser();
+    if (!u) { openAuth(); return; }
+    if (!currentIdentified || !db) return;
+    const tripId = doc(collection(db, `users/${u.uid}/trips`)).id;
+    await setDoc(doc(db, `users/${u.uid}/trips/${tripId}`), {
+      id: tripId,
+      name: currentIdentified.name,
+      destination: currentIdentified.name,
+      cover: $<HTMLImageElement>("#resultImg")!.src,
+      countryCode: currentIdentified.countryCode,
+      lat: currentIdentified.lat,
+      lon: currentIdentified.lon,
+      status: "idea",
+      createdAt: new Date().toISOString(),
+    });
+    toast("Saved to your trips", "ok");
+  });
+
+  $<HTMLButtonElement>("#flightSearchBtn")!.addEventListener("click", async (ev) => {
+    if (!currentIdentified) { toast("Identify a place first.", "info"); return; }
+    const from = $<HTMLInputElement>("#originIata")!.value.trim().toUpperCase();
+    const date = $<HTMLInputElement>("#flightDate")!.value;
+    const to = currentIdentified.iataAirport;
+    if (!from || !date || !to) { toast("Need origin IATA, date, and destination must have an airport.", "info"); return; }
+    const btn = ev.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    $("#flightsTag")!.textContent = `Searching ${from} → ${to} on ${date}…`;
+    $("#flightQuotes")!.innerHTML = `<div class='skeleton'></div><div class='skeleton'></div><div class='skeleton'></div>`;
+    try {
+      const r = await searchFlights({ from, to, date });
+      $("#flightsTag")!.textContent = `Compared ${r.results.length} offers · ${from} → ${to}`;
+      renderFlightQuotes($("#flightQuotes")!, r.results);
+    } catch (e) {
+      toast(`Flight search failed: ${(e as Error).message}`, "err");
+      $("#flightsTag")!.textContent = "Search failed.";
+      $("#flightQuotes")!.innerHTML = "";
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $<HTMLButtonElement>("#visaCheckBtn")!.addEventListener("click", async () => {
+    if (!currentIdentified) return;
+    const passport = $<HTMLInputElement>("#passportInput")!.value.trim().toUpperCase();
+    if (!passport) { toast("Enter passport country code (e.g. US).", "info"); return; }
+    try {
+      const r = await call<{ destination: string; passportCC: string }, DestinationIntel>(
+        "getDestinationIntel",
+        { destination: currentIdentified.name, passportCC: passport }
+      );
+      if (r.visa) {
+        $("#visaText")!.innerHTML = `<strong>${esc(r.visa.status)}</strong>${r.visa.durationDays ? ` · ${esc(r.visa.durationDays)} days` : ""}${r.visa.notes ? ` — ${esc(r.visa.notes)}` : ""}`;
+        const pill = $("#visaPill")!;
+        pill.style.display = "inline-flex";
+        pill.textContent = `${r.visa.status}${r.visa.durationDays ? ` · ${r.visa.durationDays}d` : ""} (${passport})`;
+      } else {
+        $("#visaText")!.textContent = "Couldn't fetch visa data. VisaDB key may be missing.";
+      }
+    } catch (e) {
+      toast(`Visa lookup failed: ${(e as Error).message}`, "err");
     }
   });
 }
 
-  // Remove uploaded image
-  if (removeUploadedImage) {
-    removeUploadedImage.addEventListener("click", () => {
-      if (uploadedImagePreview) {
-        uploadedImagePreview.src = "";
-        uploadedImagePreview.dataset.uploaded = "";
-      }
-      if (uploadedImageContainer) {
-        uploadedImageContainer.style.display = "none";
-      }
-      if (uploadCard) {
-        uploadCard.classList.remove("selected");
-      }
-      selectedMedia = null;
-      if (imageUpload) {
-        imageUpload.value = "";
-      }
-    });
-  }
-
-  // Drag and drop support
-  if (uploadCard) {
-    uploadCard.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      uploadCard.classList.add("drag-over");
-    });
-
-    uploadCard.addEventListener("dragleave", () => {
-      uploadCard.classList.remove("drag-over");
-    });
-
-    uploadCard.addEventListener("drop", (e) => {
-      e.preventDefault();
-      uploadCard.classList.remove("drag-over");
-      const file = e.dataTransfer?.files[0];
-      if (file && file.type.startsWith("image/")) {
-        if (imageUpload) {
-          const dataTransfer = new DataTransfer();
-          dataTransfer.items.add(file);
-          imageUpload.files = dataTransfer.files;
-          imageUpload.dispatchEvent(new Event("change", { bubbles: true }));
-        }
-      }
-    });
-  }
-}
-
-// --- CORE APPLICATION LOGIC ---
-// Event listeners are initialized in DOMContentLoaded
-
-function updateUIAfterLocationIdentified(locationName: string) {
-    if (responseContainer) responseContainer.innerHTML = locationName;
-    if (essentialLinksContainer) essentialLinksContainer.innerHTML = "";
-    if (areaInsightsContainer) areaInsightsContainer.innerHTML = "";
-    // Also update for social sharing
-    currentLocationName = locationName;
-    currentLocationUrl = window.location.href;
-}
-
-function updateUIAfterBackendResponse(data: any) {
-    if (essentialLinksContainer) essentialLinksContainer.innerHTML = data.essentialLinks;
-    if (areaInsightsContainer) {
-        areaInsightsContainer.innerHTML = `<h3>Area Insights</h3><h4>Air Quality</h4><p>AQI: ${data.aqi}</p>`;
-    }
-    
-    // Update map
-    const location = data.location as google.maps.LatLngLiteral;
-    map.setCenter(location);
-    map.setZoom(12);
-    marker.setPosition(location);
-}
-
-
-// --- TO-DO LIST (FIRESTORE) ---
-
-async function loadTodos(user: User) {
-    if (!user || !todoList) return;
-    todoList.innerHTML = ""; // Clear list before loading
-    const q = query(collection(db, "todos"), where("userId", "==", user.uid));
-    const querySnapshot = await getDocs(q);
-    querySnapshot.forEach((doc) => {
-        addTodoToList(doc.data().text, doc.id);
-    });
-}
-
-async function saveTodo(user: User, taskText: string) {
+// ── Bookings page ──────────────────────────────────────────────────────────
+function initBookings() {
+  $<HTMLFormElement>("#flightForm")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target as HTMLFormElement);
+    const out = $("#bookingResults")!;
+    out.innerHTML = `<div class='skeleton'></div><div class='skeleton'></div><div class='skeleton'></div>`;
     try {
-        const docRef = await addDoc(collection(db, "todos"), {
-            userId: user.uid,
-            text: taskText,
-            createdAt: new Date()
-        });
-        addTodoToList(taskText, docRef.id);
+      const r = await searchFlights({
+        from: String(fd.get("from")).toUpperCase(),
+        to: String(fd.get("to")).toUpperCase(),
+        date: String(fd.get("date")),
+        passengers: Number(fd.get("passengers")) || 1,
+        cabinClass: String(fd.get("cabinClass")),
+      });
+      renderFlightQuotes(out, r.results);
+    } catch (err) {
+      out.innerHTML = `<div class='empty'>${esc((err as Error).message)}</div>`;
+    }
+  });
+
+  $<HTMLFormElement>("#hotelForm")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target as HTMLFormElement);
+    const out = $("#hotelResults")!;
+    out.innerHTML = `<div class='skeleton'></div><div class='skeleton'></div><div class='skeleton'></div>`;
+    try {
+      const r = await searchHotels({
+        location: String(fd.get("location")),
+        cityCode: String(fd.get("cityCode") || "").toUpperCase() || undefined,
+        checkIn: String(fd.get("checkIn")),
+        checkOut: String(fd.get("checkOut")),
+        guests: Number(fd.get("guests")) || 2,
+      });
+      renderHotels(out, r.results);
+    } catch (err) {
+      out.innerHTML = `<div class='empty'>${esc((err as Error).message)}</div>`;
+    }
+  });
+}
+
+// ── Airports page ──────────────────────────────────────────────────────────
+function initAirports() {
+  $("#airportLookup")!.addEventListener("click", async () => {
+    const code = $<HTMLInputElement>("#airportInput")!.value.trim().toUpperCase();
+    if (!code) return;
+    const panel = $("#airportPanel")!;
+    panel.innerHTML = `<div class='skeleton'></div>`;
+    try {
+      const intel = await call<{ destination: string }, DestinationIntel>("getDestinationIntel", {
+        destination: code,
+      });
+      panel.innerHTML = `
+        <div class="insight-card">
+          <h4>${esc(code)}</h4>
+          <ul>
+            ${intel.geo ? `<li>Coordinates: ${intel.geo.lat.toFixed(3)}, ${intel.geo.lon.toFixed(3)}</li>` : ""}
+            ${intel.weather?.[0] ? `<li>Today: ${esc(WEATHER_CODES[intel.weather[0].weatherCode] || "")} · ${Math.round(intel.weather[0].tempMaxC)}°/${Math.round(intel.weather[0].tempMinC)}°</li>` : ""}
+            ${intel.airQuality ? `<li>Air quality: ${intel.airQuality.aqi} · ${esc(intel.airQuality.level)}</li>` : ""}
+            <li class='tag'>Live gate / wait-time data requires a partnership feed (premium).</li>
+          </ul>
+        </div>`;
     } catch (e) {
-        console.error("Error adding document: ", e);
+      panel.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
     }
+  });
 }
 
-function addTodoToList(taskText: string, docId: string) {
-    const li = document.createElement("li");
-    li.textContent = taskText;
-    li.dataset.id = docId;
+// ── Visas page ─────────────────────────────────────────────────────────────
+function initVisas() {
+  $("#visaSearchBtn")!.addEventListener("click", async () => {
+    const pp = $<HTMLInputElement>("#visaPassport")!.value.trim().toUpperCase();
+    const dst = $<HTMLInputElement>("#visaDest")!.value.trim().toUpperCase();
+    if (!pp || !dst) { toast("Enter both passport and destination ISO codes.", "info"); return; }
+    const panel = $("#visaPanel")!;
+    panel.innerHTML = `<div class='skeleton'></div>`;
+    try {
+      const r = await call<{ destination: string; passportCC: string }, DestinationIntel>(
+        "getDestinationIntel",
+        { destination: dst, passportCC: pp }
+      );
+      const visa = r.visa;
+      const facts = r.countryFacts;
+      const stat = r.staticFacts;
+      panel.innerHTML = `
+        <div class="insight-card">
+          <h4>Visa for ${esc(pp)} passport → ${esc(dst)}</h4>
+          <p>${visa ? `<strong>${esc(visa.status)}</strong>${visa.durationDays ? ` · up to ${esc(visa.durationDays)} days` : ""}${visa.notes ? ` — ${esc(visa.notes)}` : ""}` : "VisaDB data unavailable. Check official embassy site."}</p>
+        </div>
+        <div class="insight-card" style="margin-top:12px">
+          <h4>Country</h4>
+          <ul>
+            ${facts ? `<li><strong>${esc(facts.name)}</strong> · capital ${esc(facts.capital?.[0] || "—")}</li>` : ""}
+            ${facts?.callingCode ? `<li>Calling code: ${esc(facts.callingCode)}</li>` : ""}
+            ${stat.plugs ? `<li>Plugs: ${esc(stat.plugs.join(", "))} · ${esc(stat.voltage)}</li>` : ""}
+            ${stat.tippingPercent ? `<li>Tipping: ${esc(stat.tippingPercent)}</li>` : ""}
+            ${stat.emergency ? `<li>Emergency: ${esc(stat.emergency.universal || stat.emergency.police || "—")}</li>` : ""}
+            ${typeof stat.tapWaterSafe === "boolean" ? `<li>Tap water: ${stat.tapWaterSafe ? "safe" : "not recommended"}</li>` : ""}
+          </ul>
+        </div>
+        ${r.publicHolidays?.length ? `<div class="insight-card" style="margin-top:12px"><h4>Upcoming holidays</h4><ul>${r.publicHolidays.slice(0,6).map(h => `<li>${esc(h.date)} — ${esc(h.localName)}</li>`).join("")}</ul></div>` : ""}`;
+    } catch (e) {
+      panel.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
+    }
+  });
+}
 
-    const deleteButton = document.createElement("button");
-    deleteButton.textContent = "Delete";
-    deleteButton.addEventListener("click", async () => {
-        await deleteDoc(doc(db, "todos", docId));
-        li.remove();
+// ── Translate ──────────────────────────────────────────────────────────────
+function initTranslate() {
+  $("#translateBtn")!.addEventListener("click", async () => {
+    const text = $<HTMLInputElement>("#translateText")!.value.trim();
+    const target = $<HTMLInputElement>("#translateTarget")!.value.trim();
+    if (!text || !target) return;
+    const panel = $("#translatePanel")!;
+    panel.innerHTML = `<div class='skeleton'></div>`;
+    try {
+      const r = await call<{ text: string; target: string }, {
+        translation: string; pronunciation?: string; literal?: string; formality?: string; notes?: string;
+      }>("translatePhrase", { text, target });
+      panel.innerHTML = `
+        <div class="insight-card">
+          <h4>${esc(target)}</h4>
+          <p class="serif" style="font-size:24px;line-height:1.2">${esc(r.translation)}</p>
+          ${r.pronunciation ? `<p style="margin-top:8px"><span class="tag">Pronunciation</span> ${esc(r.pronunciation)}</p>` : ""}
+          ${r.literal ? `<p style="margin-top:8px"><span class="tag">Literal</span> ${esc(r.literal)}</p>` : ""}
+          ${r.formality ? `<p style="margin-top:8px"><span class="tag">Register</span> ${esc(r.formality)}</p>` : ""}
+          ${r.notes ? `<p style="margin-top:8px"><span class="tag">Notes</span> ${esc(r.notes)}</p>` : ""}
+        </div>`;
+    } catch (e) {
+      panel.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
+    }
+  });
+}
+
+// ── Community ──────────────────────────────────────────────────────────────
+function initCommunity() {
+  $("#communityBtn")!.addEventListener("click", async () => {
+    const dest = $<HTMLInputElement>("#communityDest")!.value.trim();
+    if (!dest) return;
+    const panel = $("#communityPanel")!;
+    panel.innerHTML = `<div class='skeleton'></div><div class='skeleton'></div>`;
+    try {
+      const r = await call<{ location: string }, {
+        reddit: Array<{ title: string; url: string; score: number }>;
+        youtube: Array<{ title: string; url: string; channel: string }>;
+        synthesized?: { scams?: string[]; transportation?: string[]; simCards?: string[]; culture?: string[]; safety?: string[] };
+      }>("scrapeTravelIntelligence", { location: dest });
+      const s = r.synthesized || {};
+      const renderList = (title: string, items?: string[]) => items?.length
+        ? `<div class="insight-card"><h4>${esc(title)}</h4><ul>${items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></div>` : "";
+      panel.innerHTML = `
+        ${renderList("Scams to dodge", s.scams)}
+        ${renderList("Transportation tips", s.transportation)}
+        ${renderList("SIM cards", s.simCards)}
+        ${renderList("Culture", s.culture)}
+        ${renderList("Safety", s.safety)}
+        ${r.reddit?.length ? `<div class="insight-card"><h4>Top Reddit threads</h4><ul>${r.reddit.slice(0,5).map((p) => `<li><a href="${esc(safeUrl(p.url))}" target="_blank" rel="noopener">${esc(p.title)}</a> · ${Number(p.score) || 0} pts</li>`).join("")}</ul></div>` : ""}
+        ${r.youtube?.length ? `<div class="insight-card"><h4>Travel videos</h4><ul>${r.youtube.slice(0,5).map((v) => `<li><a href="${esc(safeUrl(v.url))}" target="_blank" rel="noopener">${esc(v.title)}</a> · ${esc(v.channel)}</li>`).join("")}</ul></div>` : ""}`;
+    } catch (e) {
+      panel.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
+    }
+  });
+}
+
+// ── Itinerary form + view ──────────────────────────────────────────────────
+interface ItineraryActivity {
+  time: string; title: string; description: string; category: string;
+  location?: { name: string; lat: number; lon: number };
+  durationMin: number;
+  estimatedCost?: { amount: number; currency: string };
+  poiId?: string;
+}
+interface ItineraryDay {
+  day: number; date: string; theme: string;
+  activities: ItineraryActivity[];
+  estimatedDailyCost: number; notes?: string;
+}
+interface Itinerary {
+  id: string; destination: string; startDate: string; endDate: string;
+  travelers: number; days: ItineraryDay[];
+  totalEstimatedCost: number; currency: string;
+}
+
+let currentItinerary: Itinerary | null = null;
+// Live Firestore subscriptions we must be able to cancel before re-subscribing.
+let watchListUnsub: (() => void) | null = null;
+let tripRailUnsub: (() => void) | null = null;
+
+function openItinForm() {
+  const f = $<HTMLFormElement>("#itinForm")!;
+  if (currentIdentified) {
+    (f.elements.namedItem("destination") as HTMLInputElement).value = currentIdentified.name;
+  }
+  const today = new Date();
+  const end = new Date(today); end.setDate(end.getDate() + 4);
+  if (!(f.elements.namedItem("startDate") as HTMLInputElement).value) {
+    (f.elements.namedItem("startDate") as HTMLInputElement).value = today.toISOString().slice(0,10);
+    (f.elements.namedItem("endDate") as HTMLInputElement).value = end.toISOString().slice(0,10);
+  }
+  openSheet("itinFormSheet");
+}
+
+function initItin() {
+  $<HTMLFormElement>("#itinForm")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!realUser()) { closeSheet("itinFormSheet"); openAuth(); return; }
+    const fd = new FormData(e.target as HTMLFormElement);
+    closeSheet("itinFormSheet");
+    toast("Generating itinerary — ~15 seconds…", "info");
+    try {
+      const r = await call<unknown, Itinerary>("generateAIItinerary", {
+        destination: String(fd.get("destination")),
+        startDate: String(fd.get("startDate")),
+        endDate: String(fd.get("endDate")),
+        travelers: Number(fd.get("travelers")) || 1,
+        budgetTier: String(fd.get("budgetTier")),
+        currency: String(fd.get("currency") || "USD").toUpperCase(),
+        interests: String(fd.get("interests")).split(",").map((s) => s.trim()).filter(Boolean),
+        pace: String(fd.get("pace")),
+      });
+      currentItinerary = r;
+      paintItinerary(r);
+      openSheet("itinViewSheet");
+      toast(`Itinerary ready: ${r.days.length} days.`, "ok");
+    } catch (err) {
+      toast(`Generation failed: ${(err as Error).message}`, "err");
+    }
+  });
+
+  $("#exportIcsBtn")!.addEventListener("click", () => {
+    if (!currentItinerary) return;
+    const events: ICSEvent[] = [];
+    let seq = 0;
+    for (const day of currentItinerary.days) {
+      for (const a of day.activities) {
+        const [hh, mm] = (a.time || "09:00").split(":").map(Number);
+        // Build the start from local Y/M/D + H/M so the calendar entry lands on
+        // the intended day in every timezone (a bare `new Date("2026-06-15")`
+        // is parsed as UTC midnight and can roll back a day west of UTC).
+        const [y, m, d] = String(day.date).split("-").map(Number);
+        const start = new Date(y, (m || 1) - 1, d || 1, hh || 9, mm || 0, 0, 0);
+        const end = new Date(start.getTime() + (a.durationMin || 60) * 60000);
+        events.push({
+          // seq guarantees a unique UID even for two activities at the same time.
+          uid: `${currentItinerary.id}-${day.day}-${(a.time || "0900").replace(/\D/g, "")}-${seq++}@atlas`,
+          title: a.title,
+          description: a.description,
+          location: a.location?.name,
+          start, end,
+          geo: a.location ? { lat: a.location.lat, lon: a.location.lon } : undefined,
+        });
+      }
+    }
+    if (!events.length) return;
+    downloadICS(events, `${currentItinerary.destination.replace(/\s+/g, "-")}.ics`);
+    toast("Calendar exported", "ok");
+  });
+
+  $("#packingBtn")!.addEventListener("click", async () => {
+    if (!currentItinerary) return;
+    toast("Generating packing list…", "info");
+    try {
+      const r = await call<unknown, { list: Array<{ category: string; items: string[] }> }>(
+        "generateAIPackingList",
+        {
+          destination: currentItinerary.destination,
+          startDate: currentItinerary.startDate,
+          endDate: currentItinerary.endDate,
+          weatherSummary: "varied climate",
+          activities: currentItinerary.days.flatMap((d) => d.activities.map((a) => a.category)),
+        }
+      );
+      const html = r.list.map((c) =>
+        `<div class="insight-card" style="margin-bottom:8px"><h4>${esc(c.category)}</h4><ul>${c.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>`
+      ).join("");
+      const body = $("#itinViewBody")!;
+      body.insertAdjacentHTML("afterbegin", `<details open style="margin-bottom:16px"><summary style="cursor:pointer;font-weight:600;padding:6px 0">Packing list</summary><div style="margin-top:8px">${html}</div></details>`);
+    } catch (e) {
+      toast(`Packing list failed: ${(e as Error).message}`, "err");
+    }
+  });
+}
+
+function paintItinerary(it: Itinerary) {
+  $("#itinViewTitle")!.textContent = `${it.destination} · ${it.days.length} days`;
+  const body = $("#itinViewBody")!;
+  body.innerHTML = "";
+  body.insertAdjacentHTML("beforeend", `<p style="color:var(--ink-2);margin-bottom:18px">Total estimated cost: <strong>${it.currency} ${Math.round(it.totalEstimatedCost)}</strong></p>`);
+  for (const day of it.days) {
+    const acts = day.activities.map((a) => `
+      <div class="act">
+        <div class="t">${esc(a.time || "—")}</div>
+        <div class="info"><h6>${esc(a.title)}</h6><p>${esc(a.description)}${a.location ? ` <a href="https://www.google.com/maps/search/?api=1&query=${a.location.lat},${a.location.lon}" target="_blank" rel="noopener" style="color:var(--clay)">map</a>` : ""}</p></div>
+        <div class="cost">${a.estimatedCost ? `${esc(a.estimatedCost.currency)} ${Math.round(a.estimatedCost.amount)}` : ""}</div>
+      </div>`).join("");
+    body.insertAdjacentHTML("beforeend", `
+      <div class="day">
+        <h5>Day ${day.day} — ${esc(day.theme)}</h5>
+        <div class="meta">${esc(day.date)} · est. ${esc(it.currency)} ${Math.round(day.estimatedDailyCost)}${day.notes ? ` · ${esc(day.notes)}` : ""}</div>
+        <div class="acts">${acts}</div>
+      </div>`);
+  }
+}
+
+// ── Price watchlist ────────────────────────────────────────────────────────
+interface PriceWatch {
+  id: string; kind: "flight" | "hotel";
+  from?: string; to?: string; date?: string; passengers?: number;
+  location?: string; checkIn?: string; checkOut?: string; guests?: number;
+  threshold?: number; currency: string;
+  lastPrice?: number; lowestPrice?: number;
+  active: boolean; createdAt: string;
+}
+
+async function refreshWatchList() {
+  const body = $("#watchBody")!;
+  const u = realUser();
+  if (!u || !db) {
+    body.innerHTML = `<div class='empty'>Sign in to create price watches.</div>`;
+    return;
+  }
+  body.innerHTML = `
+    <div class="booking-form" style="grid-template-columns:1fr 1fr 1fr auto">
+      <label>Kind<select id="watchKind"><option value="flight">Flight</option><option value="hotel">Hotel</option></select></label>
+      <label>From / Location<input id="watchA" placeholder="JFK or 'Berlin'"></label>
+      <label>To<input id="watchB" placeholder="BER"></label>
+      <label>Date / Check-in<input type="date" id="watchDate"></label>
+      <label>Threshold<input type="number" id="watchThreshold" placeholder="500"></label>
+      <label>Currency<input id="watchCur" value="USD" maxlength="3" style="text-transform:uppercase"></label>
+      <button class="btn clay" id="watchCreate" style="grid-column:1 / -1">Add watch</button>
+    </div>
+    <div id="watchListItems" style="margin-top:16px"><div class="skeleton"></div></div>`;
+  $("#watchCreate")!.addEventListener("click", createWatchFromForm);
+
+  const uid = u.uid;
+  const q = query(collection(db, `users/${uid}/priceWatches`), orderBy("createdAt", "desc"), limit(50));
+  // Tear down any previous subscription so re-opening the sheet doesn't stack
+  // duplicate listeners that all write to the DOM.
+  watchListUnsub?.();
+  watchListUnsub = onSnapshot(q, (snap) => {
+    const list = $("#watchListItems")!;
+    if (snap.empty) { list.innerHTML = "<div class='empty'>No watches yet.</div>"; return; }
+    list.innerHTML = "";
+    snap.docs.forEach((d) => {
+      const w = d.data() as PriceWatch;
+      const summary = w.kind === "flight"
+        ? `${esc(w.from)} → ${esc(w.to)} · ${esc(w.date)}`
+        : `${esc(w.location)} · ${esc(w.checkIn)}–${esc(w.checkOut)}`;
+      list.insertAdjacentHTML("beforeend", `
+        <div class="quote" style="justify-content:space-between">
+          <div class="src"><strong>${esc(w.kind)}</strong> · ${summary}<small>${w.lastPrice ? `Last ${esc(w.currency)} ${Math.round(w.lastPrice)}` : "no data yet"} ${w.threshold ? `· alert ≤ ${esc(w.currency)} ${esc(w.threshold)}` : ""}</small></div>
+          <button class="btn ghost sm" data-watch-del="${esc(w.id)}">Remove</button>
+        </div>`);
     });
-
-    li.appendChild(deleteButton);
-    if (todoList) {
-        todoList.appendChild(li);
-    }
+    list.querySelectorAll<HTMLButtonElement>("[data-watch-del]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.watchDel!;
+        try { await call("deletePriceWatch", { id }); toast("Watch removed", "ok"); } catch (e) { toast((e as Error).message, "err"); }
+      })
+    );
+  });
 }
 
-// Event listeners for todos and reviews will be attached in DOMContentLoaded
+async function createWatchFromForm() {
+  const kind = $<HTMLSelectElement>("#watchKind")!.value as "flight" | "hotel";
+  const a = $<HTMLInputElement>("#watchA")!.value.trim();
+  const b = $<HTMLInputElement>("#watchB")!.value.trim();
+  const date = $<HTMLInputElement>("#watchDate")!.value;
+  const threshold = Number($<HTMLInputElement>("#watchThreshold")!.value) || undefined;
+  const currency = $<HTMLInputElement>("#watchCur")!.value.toUpperCase() || "USD";
+  if (!a) { toast("Enter origin/location", "info"); return; }
+  const fcmToken = await ensureFcmToken();
+  try {
+    // For hotels, default a 1-night stay so check-out is after check-in rather
+    // than a zero-duration window the price API would reject.
+    let checkOut = date;
+    if (kind === "hotel" && date) {
+      const [y, m, d] = date.split("-").map(Number);
+      const next = new Date(y, (m || 1) - 1, (d || 1) + 1);
+      checkOut = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+    }
+    const payload = kind === "flight"
+      ? { kind, from: a.toUpperCase(), to: b.toUpperCase(), date, threshold, currency, passengers: 1, fcmToken }
+      : { kind, location: a, checkIn: date, checkOut, threshold, currency, guests: 2, fcmToken };
+    await call("createPriceWatch", payload);
+    toast("Watch created — Atlas will check hourly.", "ok");
+  } catch (e) {
+    toast(`Watch failed: ${(e as Error).message}`, "err");
+  }
+}
 
+// ── eSIM ───────────────────────────────────────────────────────────────────
+interface AiraloPackage { id: string; price: number; day: number; data: string; short_info: string; }
 
-// --- HELPER FUNCTIONS ---
+async function loadEsimPackages(code: string) {
+  const body = $("#esimBody")!;
+  if (!code) { body.innerHTML = "<div class='empty'>Need a country code.</div>"; return; }
+  body.innerHTML = `<div class='skeleton'></div><div class='skeleton'></div>`;
+  try {
+    const r = await call<{ countryCode: string }, { packages: AiraloPackage[]; affiliateUrl: string | null }>(
+      "listEsimPackages",
+      { countryCode: code.toUpperCase() }
+    );
+    if (!r.packages.length && r.affiliateUrl) {
+      body.innerHTML = `<div class="insight-card"><h4>Browse Airalo directly</h4><p><a class="btn clay" href="${esc(safeUrl(r.affiliateUrl))}" target="_blank" rel="noopener">Open Airalo · ${esc(code.toUpperCase())}</a></p></div>`;
+      return;
+    }
+    if (!r.packages.length) { body.innerHTML = "<div class='empty'>No packages found.</div>"; return; }
+    body.innerHTML = r.packages.slice(0, 12).map((p) => `
+      <a class="quote" href="${esc(safeUrl(r.affiliateUrl))}" target="_blank" rel="noopener">
+        <div class="src"><strong>${esc(p.short_info || p.data)}</strong><small>${esc(p.data)} · ${esc(p.day)} days</small></div>
+        <div class="price">USD ${esc(p.price)}</div>
+      </a>`).join("");
+  } catch (e) {
+    body.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
+  }
+}
+
+async function refreshEsim() {
+  const body = $("#esimBody")!;
+  const code = currentIdentified?.countryCode || "";
+  if (code) { loadEsimPackages(code); return; }
+  // No place identified yet — render an inline, accessible country-code field
+  // instead of a blocking, unstyled, often-popup-blocked window.prompt().
+  body.innerHTML = `
+    <div class="booking-form" style="grid-template-columns:1fr auto">
+      <label>Destination country code
+        <input id="esimCodeInput" placeholder="e.g. JP" maxlength="2" style="text-transform:uppercase" autocomplete="off">
+      </label>
+      <button class="btn clay" id="esimCodeBtn" style="align-self:end">Find eSIMs</button>
+    </div>`;
+  const run = () => {
+    const v = $<HTMLInputElement>("#esimCodeInput")!.value.trim();
+    if (v) loadEsimPackages(v);
+  };
+  $("#esimCodeBtn")!.addEventListener("click", run);
+  $<HTMLInputElement>("#esimCodeInput")!.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
+}
+
+// ── Currency converter ──────────────────────────────────────────────────────
+let fxBound = false;
+function initFxOnce() {
+  if (fxBound) return;
+  fxBound = true;
+  const run = async () => {
+    const amount = Number($<HTMLInputElement>("#fxAmount")!.value);
+    const from = $<HTMLInputElement>("#fxFrom")!.value.trim().toUpperCase();
+    const to = $<HTMLInputElement>("#fxTo")!.value.trim().toUpperCase();
+    const out = $("#fxResult")!;
+    if (!from || !to || !amount || amount <= 0) { out.innerHTML = "<div class='empty'>Enter an amount and two 3-letter currency codes.</div>"; return; }
+    out.innerHTML = "<div class='skeleton'></div>";
+    try {
+      const r = await call<{ from: string; to: string; amount: number }, { rate: number; converted: number }>(
+        "convertCurrency", { from, to, amount }
+      );
+      out.innerHTML = `
+        <div class="insight-card">
+          <p class="serif" style="font-size:28px;line-height:1.1">${esc(amount)} ${esc(from)} = <strong>${r.converted.toFixed(2)} ${esc(to)}</strong></p>
+          <p style="margin-top:8px;color:var(--ink-2)">1 ${esc(from)} = ${r.rate.toFixed(4)} ${esc(to)}</p>
+        </div>`;
+    } catch (e) {
+      out.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
+    }
+  };
+  $("#fxConvert")!.addEventListener("click", run);
+  ["fxAmount", "fxFrom", "fxTo"].forEach((id) =>
+    $<HTMLInputElement>(`#${id}`)!.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); })
+  );
+  run(); // show an initial conversion immediately
+}
+
+// ── Document vault ─────────────────────────────────────────────────────────
+const vault = new DocumentVault();
+
+async function refreshVaultList() {
+  const list = $("#vaultList")!;
+  if (!realUser()) { list.innerHTML = "<div class='empty'>Sign in to use the vault.</div>"; return; }
+  list.innerHTML = `<div class='skeleton'></div>`;
+  try {
+    const items = await vault.list();
+    if (!items.length) { list.innerHTML = "<div class='empty'>No documents yet.</div>"; return; }
+    list.innerHTML = items.map((m) => `
+      <div class="quote" style="justify-content:space-between">
+        <div class="src"><strong>${esc(m.name)}</strong><small>${esc(m.kind)} · ${(m.size / 1024).toFixed(1)} KB · ${new Date(m.createdAt).toLocaleDateString()}</small></div>
+        <button class="btn ghost sm" data-vault-get="${esc(m.id)}">Open</button>
+        <button class="btn ghost sm" data-vault-del="${esc(m.id)}">Delete</button>
+      </div>`).join("");
+    list.querySelectorAll<HTMLButtonElement>("[data-vault-get]").forEach((b) =>
+      b.addEventListener("click", () => downloadVault(b.dataset.vaultGet!))
+    );
+    list.querySelectorAll<HTMLButtonElement>("[data-vault-del]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        if (!(await uiConfirm("Delete document?", "This permanently removes the encrypted file. It cannot be undone.", "Delete"))) return;
+        await vault.delete(b.dataset.vaultDel!);
+        refreshVaultList();
+      })
+    );
+  } catch (e) {
+    list.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
+  }
+}
+
+async function downloadVault(id: string) {
+  const pass = await uiPrompt("Decrypt document", "Passphrase for this document", "password");
+  if (!pass) return;
+  try {
+    const { blob, meta } = await vault.download(id, pass);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = meta.name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Decrypted", "ok");
+  } catch (e) {
+    toast((e as Error).message, "err");
+  }
+}
+
+function initVaultForm() {
+  $("#vaultUpload")!.addEventListener("click", async () => {
+    if (!realUser()) { closeSheet("vaultSheet"); openAuth(); return; }
+    const fileEl = $<HTMLInputElement>("#vaultFile")!;
+    const passEl = $<HTMLInputElement>("#vaultPass")!;
+    const kindEl = $<HTMLSelectElement>("#vaultKind")!;
+    const f = fileEl.files?.[0];
+    const pass = passEl.value;
+    if (!f) { toast("Pick a file", "info"); return; }
+    if (pass.length < 8) { toast("Passphrase needs 8+ chars", "info"); return; }
+    try {
+      await vault.upload(f, pass, kindEl.value as DocKind);
+      fileEl.value = ""; passEl.value = "";
+      toast("Uploaded & encrypted", "ok");
+      refreshVaultList();
+    } catch (e) {
+      toast((e as Error).message, "err");
+    }
+  });
+}
+
+// silence unused VaultDocMeta import warning by re-exporting type
+export type { VaultDocMeta };
+
+// ── FCM push ───────────────────────────────────────────────────────────────
+let fcmTokenCache: string | null = null;
+let fcmMessageListenerRegistered = false;
+
+async function ensureFcmToken(): Promise<string | undefined> {
+  if (fcmTokenCache) return fcmTokenCache;
+  if (!app || !auth?.currentUser) return undefined;
+  try {
+    if (!(await fcmSupported())) return undefined;
+    const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+    if (!vapidKey) return undefined;
+    if (!("serviceWorker" in navigator)) return undefined;
+    const reg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    const messaging = getMessaging(app);
+    const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: reg });
+    if (!token) return undefined;
+    fcmTokenCache = token;
+    if (db && auth.currentUser) {
+      await setDoc(doc(db, `users/${auth.currentUser.uid}/fcmTokens/${token.slice(0, 32)}`), {
+        token, createdAt: new Date().toISOString(), userAgent: navigator.userAgent,
+      });
+    }
+    // Register the foreground-message handler exactly once. ensureFcmToken can
+    // run on every auth change / watch creation; without this guard each call
+    // stacks another listener and a single push fires N toasts.
+    if (!fcmMessageListenerRegistered) {
+      fcmMessageListenerRegistered = true;
+      onMessage(messaging, (payload) => {
+        const t = payload.notification?.title || "Atlas";
+        const b = payload.notification?.body || "";
+        toast(`${t} — ${b}`, "ok");
+      });
+    }
+    return token;
+  } catch (e) {
+    console.warn("FCM init failed", e);
+    return undefined;
+  }
+}
+
+// ── Assistant ──────────────────────────────────────────────────────────────
+type ChatMsg = { role: "user" | "model"; text: string };
+const chatHistory: ChatMsg[] = [];
+
+function appendMsg(role: "you" | "bot", text: string) {
+  const body = $("#assistBody")!;
+  const el = document.createElement("div");
+  el.className = `msg ${role}`;
+  el.textContent = text;
+  body.appendChild(el);
+  body.scrollTop = body.scrollHeight;
+  return el;
+}
+
+function initAssistant() {
+  const panel = $("#assistPanel")!;
+  $("#assistantBtn")!.addEventListener("click", () => panel.classList.toggle("is-open"));
+  $("#closeAssist")!.addEventListener("click", () => panel.classList.remove("is-open"));
+
+  $$<HTMLSpanElement>(".chip").forEach((c) =>
+    c.addEventListener("click", () => {
+      $<HTMLInputElement>("#assistInput")!.value = c.textContent || "";
+      $<HTMLInputElement>("#assistInput")!.focus();
+    })
+  );
+
+  $<HTMLFormElement>("#assistForm")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = $<HTMLInputElement>("#assistInput")!;
+    const v = input.value.trim();
+    if (!v) return;
+    input.value = "";
+    appendMsg("you", v);
+    chatHistory.push({ role: "user", text: v });
+    const thinking = appendMsg("bot", "…");
+    try {
+      const context = currentIdentified
+        ? {
+            destination: currentIdentified.name,
+            lat: currentIdentified.lat,
+            lon: currentIdentified.lon,
+            countryCode: currentIdentified.countryCode,
+          }
+        : undefined;
+      const r = await call<{ history: ChatMsg[]; message: string; context: unknown }, { reply: string }>(
+        "chatWithAssistant",
+        { history: chatHistory.slice(0, -1), message: v, context }
+      );
+      thinking.textContent = r.reply;
+      chatHistory.push({ role: "model", text: r.reply });
+    } catch (err) {
+      thinking.textContent = `(${(err as Error).message})`;
+    }
+  });
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+function openAuth() {
+  $("#authModal")!.classList.add("is-open");
+}
+function closeAuth() {
+  $("#authModal")!.classList.remove("is-open");
+}
+
+function initAuth() {
+  $("#signInBtn")!.addEventListener("click", openAuth);
+  $("#footerSignIn")!.addEventListener("click", (e) => { e.preventDefault(); openAuth(); });
+  $("#authClose")!.addEventListener("click", closeAuth);
+  $("#authModal")!.addEventListener("click", (e) => {
+    if (e.target === $("#authModal")) closeAuth();
+  });
+
+  if (!auth) return;
+  const providers = {
+    google: new GoogleAuthProvider(),
+    facebook: new FacebookAuthProvider(),
+    apple: new OAuthProvider("apple.com"),
+  };
+  $("#authGoogle")!.addEventListener("click", () => signInWithPopup(auth, providers.google).then(closeAuth).catch((e) => toast(e.message, "err")));
+  $("#authApple")!.addEventListener("click", () => signInWithPopup(auth, providers.apple).then(closeAuth).catch((e) => toast(e.message, "err")));
+  $("#authFacebook")!.addEventListener("click", () => signInWithPopup(auth, providers.facebook).then(closeAuth).catch((e) => toast(e.message, "err")));
+  $("#signedInMenu")!.addEventListener("click", async () => {
+    if (await uiConfirm("Sign out?", undefined, "Sign out")) await signOut(auth);
+  });
+
+  onAuthStateChanged(auth, (u) => {
+    paintUser(u);
+    // Backend callable functions now require an auth context (so a stranger
+    // can't drain our Gemini/booking quotas with curl). Give anonymous visitors
+    // a throwaway identity so the landing-page "Identify" still works before
+    // they choose to sign in. Best-effort: needs Anonymous auth enabled in the
+    // Firebase console; if it's off this fails quietly and the gated features
+    // simply prompt for sign-in.
+    if (!u) signInAnonymously(auth).catch((e) => console.warn("anon auth", e?.code || e));
+  });
+}
+
+function paintUser(u: User | null) {
+  // Anonymous users have an auth token but no real account — treat them as
+  // logged-out in the UI (show "Sign in", don't load personal trips).
+  const realUser = u && !u.isAnonymous ? u : null;
+  if (realUser) {
+    $("#signInBtn")!.style.display = "none";
+    $("#signedInMenu")!.style.display = "inline-flex";
+    $("#userInitial")!.textContent = (realUser.displayName || realUser.email || "U").slice(0, 1).toUpperCase();
+    bindTripRail(realUser.uid);
+    ensureFcmToken();
+  } else {
+    $("#signInBtn")!.style.display = "inline-flex";
+    $("#signedInMenu")!.style.display = "none";
+    $("#tripRail")!.innerHTML = "<div class='empty'>Sign in to save trips. They'll appear here.</div>";
+  }
+}
+
+// ── Trip rail (Firestore subscription) ─────────────────────────────────────
+interface SavedTrip {
+  id: string; name: string; destination: string; cover?: string; status?: string;
+  createdAt: string; stops?: string[]; dates?: string;
+  countryCode?: string; lat?: number; lon?: number;
+}
+const tripCache = new Map<string, SavedTrip>();
+
+function bindTripRail(uid: string) {
+  if (!db) return;
+  const rail = $("#tripRail")!;
+  rail.innerHTML = "<div class='empty'>Loading your trips…</div>";
+  const q = query(collection(db, `users/${uid}/trips`), orderBy("createdAt", "desc"), limit(6));
+  // Drop any prior subscription (e.g. on re-login as a different user) before
+  // opening a new one.
+  tripRailUnsub?.();
+  tripRailUnsub = onSnapshot(q, (snap) => {
+    tripCache.clear();
+    if (snap.empty) { rail.innerHTML = "<div class='empty'>No trips yet. Identify a place and tap 'Save to a trip'.</div>"; return; }
+    rail.innerHTML = "";
+    snap.docs.forEach((d) => {
+      const t = d.data() as SavedTrip;
+      tripCache.set(t.id, t);
+      const dot = t.status === "booked" ? "#fff" : t.status === "planning" ? "#F6B557" : "#9ACBA8";
+      const stamp = t.status === "booked" ? "Booked" : t.status === "planning" ? "Planning" : "Idea";
+      rail.insertAdjacentHTML("beforeend", `
+        <article class="trip" data-trip-id="${esc(t.id)}" style="cursor:pointer">
+          <div class="cover">
+            ${t.cover ? `<img src="${esc(safeImgUrl(t.cover))}" alt="${esc(t.name)}">` : ""}
+            <span class="stamp-sm"><span style="width:6px;height:6px;border-radius:50%;background:${dot}"></span>${stamp}</span>
+          </div>
+          <div class="trip-body">
+            <h6>${esc(t.name)}</h6>
+            <div class="dates">${esc(t.dates || new Date(t.createdAt).toLocaleDateString())}</div>
+            <div class="stops">${(t.stops || []).slice(0,4).map(s => `<span class="pill">${esc(s)}</span>`).join("")}</div>
+          </div>
+          <div class="trip-foot"><div class="avatars"><span class="av a1"></span></div><span>Saved trip · open</span></div>
+        </article>`);
+    });
+    rail.querySelectorAll<HTMLElement>("[data-trip-id]").forEach((el) =>
+      el.addEventListener("click", () => openTrip(el.dataset.tripId!))
+    );
+  });
+}
+
+// ── Trip detail sheet ──────────────────────────────────────────────────────
+let currentTripId: string | null = null;
+let currentTripTab: "overview" | "journal" | "group" | "email" | "geofence" = "overview";
+const journalSvc = new TripJournal();
+const geofencer = new GeofenceWatcher();
+let geofenceActive = false;
+
+function openTrip(tripId: string) {
+  currentTripId = tripId;
+  const t = tripCache.get(tripId);
+  if (!t) return;
+  $("#tripSheetTitle")!.textContent = t.name; // textContent — already safe
+  openSheet("tripSheet");
+  paintTripTab("overview");
+}
+
+function paintTripTab(tab: typeof currentTripTab) {
+  currentTripTab = tab;
+  $$<HTMLButtonElement>("#tripTabs .tab-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tripTab === tab)
+  );
+  const body = $("#tripSheetBody")!;
+  if (!currentTripId) return;
+  const t = tripCache.get(currentTripId);
+  if (!t) { body.innerHTML = "<div class='empty'>Trip not found.</div>"; return; }
+
+  if (tab === "overview") paintTripOverview(t, body);
+  else if (tab === "journal") paintTripJournal(t, body);
+  else if (tab === "group") paintTripGroup(t, body);
+  else if (tab === "email") paintTripEmail(t, body);
+  else if (tab === "geofence") paintTripGeofence(t, body);
+}
+
+function paintTripOverview(t: SavedTrip, body: HTMLElement) {
+  body.innerHTML = `
+    <div class="insight-card">
+      <h4>${esc(t.name)}</h4>
+      <p>${esc(t.destination)}${t.countryCode ? ` · ${esc(t.countryCode)}` : ""}${t.dates ? ` · ${esc(t.dates)}` : ""}</p>
+      <div class="row-actions" style="margin-top:12px">
+        <button class="btn ghost sm" id="tripPlanItin">Plan itinerary</button>
+        ${t.lat != null ? `<a class="btn ghost sm" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${t.lat},${t.lon}">Open in Maps</a>` : ""}
+        <button class="btn ghost sm" id="tripPromoteGroup">Promote to group trip</button>
+        <button class="btn ghost sm" id="tripDelete">Delete</button>
+      </div>
+    </div>`;
+  $("#tripPlanItin")?.addEventListener("click", () => {
+    closeSheet("tripSheet");
+    currentIdentified = currentIdentified || ({
+      name: t.destination, shortMatch: t.name, country: "", countryCode: t.countryCode || "",
+      region: "", city: "", lat: t.lat || 0, lon: t.lon || 0, confidence: 100, description: "",
+    } as IdentifyResult);
+    openItinForm();
+  });
+  $("#tripPromoteGroup")?.addEventListener("click", () => promoteToGroup(t));
+  $("#tripDelete")?.addEventListener("click", async () => {
+    if (!(await uiConfirm("Delete trip?", `Remove "${t.name}" from your saved trips?`, "Delete")) || !auth?.currentUser || !db) return;
+    await deleteDoc(doc(db, `users/${auth.currentUser.uid}/trips/${t.id}`));
+    closeSheet("tripSheet");
+    toast("Trip deleted", "ok");
+  });
+}
+
+// ── Journal ───────────────────────────────────────────────────────────────
+function paintTripJournal(t: SavedTrip, body: HTMLElement) {
+  body.innerHTML = `
+    <div class="insight-card" style="margin-bottom:12px">
+      <h4>Add entry</h4>
+      <textarea id="journalText" rows="2" placeholder="What's happening?" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:14px;outline:none;resize:vertical"></textarea>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <input type="file" id="journalPhotos" multiple accept="image/*">
+        <select id="journalMood" style="padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">
+          <option value="">Mood…</option>
+          <option value="happy">😊 Happy</option>
+          <option value="tired">😪 Tired</option>
+          <option value="amazed">🤩 Amazed</option>
+          <option value="neutral">😐 Neutral</option>
+          <option value="excited">🎉 Excited</option>
+        </select>
+        <label style="font-size:12px;color:var(--muted)"><input type="checkbox" id="journalGeo" checked> Tag location</label>
+        <button class="btn clay sm" id="journalAdd">Post</button>
+      </div>
+    </div>
+    <div id="journalList"><div class="skeleton"></div></div>`;
+  $("#journalAdd")?.addEventListener("click", () => addJournalEntry(t.id));
+  loadJournalEntries(t.id);
+}
+
+async function addJournalEntry(tripId: string) {
+  if (!realUser()) { openAuth(); return; }
+  const text = $<HTMLTextAreaElement>("#journalText")!.value.trim();
+  const mood = $<HTMLSelectElement>("#journalMood")!.value as JournalEntry["mood"];
+  const photos = Array.from($<HTMLInputElement>("#journalPhotos")!.files || []);
+  const tagGeo = $<HTMLInputElement>("#journalGeo")!.checked;
+  if (!text && !photos.length) { toast("Add text or photos.", "info"); return; }
+  toast("Saving entry…", "info");
+  try {
+    const loc = tagGeo ? await journalSvc.captureLocation() : null;
+    await journalSvc.addEntry(tripId, text, photos, {
+      lat: loc?.lat, lon: loc?.lon, mood: mood || undefined,
+    });
+    $<HTMLTextAreaElement>("#journalText")!.value = "";
+    $<HTMLInputElement>("#journalPhotos")!.value = "";
+    toast("Saved", "ok");
+    loadJournalEntries(tripId);
+  } catch (e) {
+    toast((e as Error).message, "err");
+  }
+}
+
+async function loadJournalEntries(tripId: string) {
+  const list = $("#journalList")!;
+  try {
+    const items = await journalSvc.getEntries(tripId);
+    if (!items.length) { list.innerHTML = "<div class='empty'>No entries yet.</div>"; return; }
+    list.innerHTML = items.slice().reverse().map((e) => `
+      <div class="insight-card" style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <strong>${new Date(e.timestamp).toLocaleString()}</strong>
+          <span class="tag">${esc(e.mood || "")}${e.lat != null && e.lon != null ? ` · ${e.lat.toFixed(2)},${e.lon.toFixed(2)}` : ""}</span>
+        </div>
+        ${e.text ? `<p style="margin-top:8px">${esc(e.text)}</p>` : ""}
+        ${e.photoUrls?.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin-top:8px">${e.photoUrls.map((u) => `<a href="${esc(safeImgUrl(u))}" target="_blank" rel="noopener"><img src="${esc(safeImgUrl(u))}" style="width:100%;height:120px;object-fit:cover;border-radius:8px"></a>`).join("")}</div>` : ""}
+      </div>`).join("");
+  } catch (e) {
+    list.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
+  }
+}
+
+// ── Group ──────────────────────────────────────────────────────────────────
+async function promoteToGroup(t: SavedTrip) {
+  const u = realUser();
+  if (!u) { openAuth(); return; }
+  try {
+    const r = await call<unknown, { id: string }>("createGroupTrip", {
+      name: t.name, destination: t.destination,
+      startDate: new Date().toISOString().slice(0, 10),
+      endDate: new Date(Date.now() + 4 * 86400000).toISOString().slice(0, 10),
+      baseCurrency: "USD",
+    });
+    if (db) {
+      await setDoc(doc(db, `users/${u.uid}/trips/${t.id}`), { ...t, groupTripId: r.id }, { merge: true });
+    }
+    toast("Promoted to group trip. Invite people now.", "ok");
+    paintTripTab("group");
+  } catch (e) {
+    toast((e as Error).message, "err");
+  }
+}
+
+interface GroupTripDoc {
+  id: string; name: string; baseCurrency: string;
+  members: Array<{ uid: string; displayName: string; email: string; role: string }>;
+  memberUids: string[]; ownerUid: string;
+}
+let groupTripDoc: GroupTripDoc | null = null;
+
+function paintTripGroup(t: SavedTrip, body: HTMLElement) {
+  const linked = (t as SavedTrip & { groupTripId?: string }).groupTripId;
+  if (!linked) {
+    body.innerHTML = `
+      <div class="empty">Not a group trip yet.<br><br>
+        <button class="btn clay sm" id="tripPromoteNow">Promote to group trip</button>
+      </div>`;
+    $("#tripPromoteNow")?.addEventListener("click", () => promoteToGroup(t));
+    return;
+  }
+  body.innerHTML = `
+    <div class="insight-card" style="margin-bottom:12px">
+      <h4>Members</h4>
+      <div id="groupMembers"><div class='skeleton'></div></div>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <input id="inviteEmail" placeholder="email@friend.com" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;font-size:13px">
+        <button class="btn clay sm" id="inviteBtn">Invite</button>
+      </div>
+    </div>
+    <div class="insight-card" style="margin-bottom:12px">
+      <h4>Add expense</h4>
+      <div class="booking-form" style="grid-template-columns:1fr 1fr 1fr auto;background:transparent;border:0;padding:0">
+        <label>Description<input id="expDesc" placeholder="Dinner"></label>
+        <label>Amount<input id="expAmount" type="number" min="0" step="0.01"></label>
+        <label>Currency<input id="expCur" value="USD" maxlength="3" style="text-transform:uppercase"></label>
+        <button class="btn clay sm" id="expAdd">Add</button>
+      </div>
+    </div>
+    <div class="insight-card" style="margin-bottom:12px">
+      <h4>Expenses</h4>
+      <div id="expList"></div>
+    </div>
+    <div class="insight-card">
+      <h4>Settle up</h4>
+      <button class="btn ghost sm" id="settleBtn">Compute balances</button>
+      <div id="settleOut" style="margin-top:10px"></div>
+    </div>`;
+
+  loadGroup(linked);
+  $("#inviteBtn")?.addEventListener("click", () => sendInvite(linked));
+  $("#expAdd")?.addEventListener("click", () => addExpense(linked));
+  $("#settleBtn")?.addEventListener("click", () => settleUp(linked));
+}
+
+async function loadGroup(tripId: string) {
+  if (!db) return;
+  const snap = await onSnapshotOnce<GroupTripDoc>(`groupTrips/${tripId}`);
+  if (!snap) return;
+  groupTripDoc = snap;
+  $("#groupMembers")!.innerHTML = snap.members.map((m) =>
+    `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px"><span>${esc(m.displayName || m.email)}</span><span class="tag">${esc(m.role)}</span></div>`
+  ).join("");
+  // expenses
+  if (db) {
+    const expSnap = await getDocsOnce<{ description: string; currency: string; amount: number }>(`groupTrips/${tripId}/expenses`);
+    const out = $("#expList")!;
+    if (!expSnap.length) { out.innerHTML = "<div class='empty'>No expenses yet.</div>"; return; }
+    out.innerHTML = expSnap.map((e) =>
+      `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px"><span>${esc(e.description)}</span><span>${esc(e.currency)} ${Number(e.amount).toFixed(2)}</span></div>`
+    ).join("");
+  }
+}
+
+async function onSnapshotOnce<T>(path: string): Promise<T | null> {
+  if (!db) return null;
+  return new Promise((resolve) => {
+    const unsub = onSnapshot(
+      doc(db, path),
+      (s) => { unsub(); resolve(s.exists() ? (s.data() as T) : null); },
+      // Without an error callback a permission/network failure leaves the
+      // Promise pending forever and the calling UI hangs on its skeleton.
+      (err) => { unsub(); console.warn("onSnapshotOnce", path, err); resolve(null); }
+    );
+  });
+}
+
+async function getDocsOnce<T = Record<string, unknown>>(path: string): Promise<T[]> {
+  if (!db) return [];
+  return new Promise((resolve) => {
+    const unsub = onSnapshot(
+      collection(db, path),
+      (s) => { unsub(); resolve(s.docs.map((d) => d.data() as T)); },
+      (err) => { unsub(); console.warn("getDocsOnce", path, err); resolve([]); }
+    );
+  });
+}
+
+async function sendInvite(tripId: string) {
+  const email = $<HTMLInputElement>("#inviteEmail")!.value.trim();
+  if (!email) return;
+  try {
+    await call("inviteToGroupTrip", { tripId, email, role: "editor" });
+    $<HTMLInputElement>("#inviteEmail")!.value = "";
+    toast(`Invited ${email}`, "ok");
+  } catch (e) {
+    toast((e as Error).message, "err");
+  }
+}
+
+async function addExpense(tripId: string) {
+  const description = $<HTMLInputElement>("#expDesc")!.value.trim();
+  const amount = Number($<HTMLInputElement>("#expAmount")!.value);
+  const currency = $<HTMLInputElement>("#expCur")!.value.toUpperCase() || "USD";
+  if (!description || !amount) { toast("Need description + amount.", "info"); return; }
+  try {
+    await call("addGroupExpense", { tripId, description, amount, currency });
+    $<HTMLInputElement>("#expDesc")!.value = "";
+    $<HTMLInputElement>("#expAmount")!.value = "";
+    loadGroup(tripId);
+    toast("Expense logged", "ok");
+  } catch (e) {
+    toast((e as Error).message, "err");
+  }
+}
+
+async function settleUp(tripId: string) {
+  const out = $("#settleOut")!;
+  out.innerHTML = "<div class='skeleton'></div>";
+  try {
+    const r = await call<{ tripId: string }, {
+      balances: Array<{ uid: string; net: number }>;
+      settlements: Array<{ from: string; to: string; amount: number }>;
+    }>("settleUpGroupTrip", { tripId });
+    const nameOf = (uid: string) => esc(groupTripDoc?.members.find((m) => m.uid === uid)?.displayName || uid.slice(0, 6));
+    const cur = esc(groupTripDoc?.baseCurrency || "USD");
+    out.innerHTML = `
+      <strong>Balances</strong>
+      <ul style="margin-top:4px">${r.balances.map((b) => `<li>${nameOf(b.uid)}: ${b.net > 0 ? "owed" : "owes"} ${cur} ${Math.abs(b.net).toFixed(2)}</li>`).join("")}</ul>
+      ${r.settlements.length ? `<strong>Suggested settlements</strong><ul style="margin-top:4px">${r.settlements.map((s) => `<li>${nameOf(s.from)} → ${nameOf(s.to)} · ${cur} ${s.amount.toFixed(2)}</li>`).join("")}</ul>` : "<p style='margin-top:6px'>All settled.</p>"}`;
+  } catch (e) {
+    out.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
+  }
+}
+
+// ── Email (Gmail OAuth + import) ───────────────────────────────────────────
+function paintTripEmail(_t: SavedTrip, body: HTMLElement) {
+  body.innerHTML = `
+    <div class="insight-card">
+      <h4>Import bookings from Gmail</h4>
+      <p>Atlas reads only travel confirmations (flights, hotels, trains) and extracts trip details. Your inbox stays on Google's servers — Atlas only sees the email body in real time during the import.</p>
+      <div class="row-actions" style="margin-top:12px">
+        <button class="btn clay sm" id="gmailConnectBtn">Connect Gmail & import</button>
+        <button class="btn ghost sm" data-action="open-inbox">View imported</button>
+      </div>
+      <p class="tag" id="gmailStatus" style="margin-top:10px"></p>
+    </div>`;
+  $("#gmailConnectBtn")?.addEventListener("click", () => runGmailImport());
+}
+
+let gmailToken: string | null = null;
 
 declare global {
-    interface Window {
-        initMap: () => void;
-    }
-}
-
-function setLoading(isLoading: boolean) {
-    if (loadingSpinner) {
-        loadingSpinner.style.display = isLoading ? "block" : "none";
-    }
-}
-
-async function imageToGenerativePart(url: string) {
-  const response = await fetch(url);
-  const blob = await response.blob();
-  const arrayBuffer = await new Promise<ArrayBuffer>((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.readAsArrayBuffer(blob);
-  });
-  const uint8Array = new Uint8Array(arrayBuffer);
-  let binary = '';
-  for (let i = 0; i < uint8Array.byteLength; i++) {
-    binary += String.fromCharCode(uint8Array[i]);
-  }
-  return btoa(binary);
-}
-
-
-// --- TAB NAVIGATION ---
-function setupTabs() {
-  const tabs = document.querySelectorAll('.tab[data-tab]');
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const targetTab = tab.getAttribute('data-tab');
-      
-      // Remove active from all tabs and contents
-      document.querySelectorAll('.tab[data-tab]').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      
-      // Add active to clicked tab and corresponding content
-      tab.classList.add('active');
-      const content = document.getElementById(`${targetTab}-tab`);
-      if (content) content.classList.add('active');
-    });
-  });
-
-  // Sub-tabs for community
-  const subTabs = document.querySelectorAll('.tab[data-subtab]');
-  subTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const targetSubTab = tab.getAttribute('data-subtab');
-      
-      document.querySelectorAll('.tab[data-subtab]').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('#community-tab .tab-content').forEach(c => c.classList.remove('active'));
-      
-      tab.classList.add('active');
-      const content = document.getElementById(`${targetSubTab}-section`);
-      if (content) content.classList.add('active');
-    });
-  });
-}
-
-// --- SOCIAL SHARING ---
-let currentLocationName = '';
-let currentLocationUrl = '';
-
-// Store original function
-const originalUpdateUIAfterLocationIdentified = updateUIAfterLocationIdentified;
-
-// Override to capture location
-function updateUIAfterLocationIdentifiedWithCapture(locationName: string) {
-  originalUpdateUIAfterLocationIdentified(locationName);
-  currentLocationName = locationName;
-  currentLocationUrl = window.location.href;
-}
-
-function setupSocialSharing() {
-  if (!socialManager) {
-    console.warn('Social manager not available - Firebase not configured');
-    return;
-  }
-  
-  // Replace the function
-  (window as any).updateUIAfterLocationIdentified = updateUIAfterLocationIdentifiedWithCapture;
-
-  document.getElementById('share-facebook')?.addEventListener('click', () => {
-    if (!currentLocationName) {
-      alert('Please identify a location first');
-      return;
-    }
-    socialManager.shareToSocialMedia('facebook', currentLocationName, currentLocationUrl);
-  });
-
-  document.getElementById('share-twitter')?.addEventListener('click', () => {
-    if (!currentLocationName) {
-      alert('Please identify a location first');
-      return;
-    }
-    socialManager.shareToSocialMedia('twitter', currentLocationName, currentLocationUrl);
-  });
-
-  document.getElementById('share-instagram')?.addEventListener('click', () => {
-    if (!currentLocationName) {
-      alert('Please identify a location first');
-      return;
-    }
-    socialManager.shareToSocialMedia('instagram', currentLocationName, currentLocationUrl);
-  });
-
-  document.getElementById('share-whatsapp')?.addEventListener('click', () => {
-    if (!currentLocationName) {
-      alert('Please identify a location first');
-      return;
-    }
-    socialManager.shareToSocialMedia('whatsapp', currentLocationName, currentLocationUrl);
-  });
-
-  // Load connections
-  if (auth && socialManager) {
-    onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const connections = await socialManager.getUserConnections(user.uid);
-        const connectionsList = document.getElementById('connections-list');
-        if (connectionsList) {
-          connectionsList.innerHTML = connections.length > 0
-            ? connections.map(c => `<div>${c.displayName} - ${c.status}</div>`).join('')
-            : '<p>No connections yet</p>';
-        }
-      }
-    });
-  }
-}
-
-// --- MAPS REPOSITORY ---
-function setupMapsRepository() {
-  if (!mapsRepository) {
-    console.warn('Maps repository not available - Firebase not configured');
-    return;
-  }
-  
-  document.getElementById('save-current-map')?.addEventListener('click', () => {
-    const form = document.getElementById('save-map-form');
-    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  });
-
-  document.getElementById('confirm-save-map')?.addEventListener('click', async () => {
-    if (!auth || !mapsRepository) {
-      alert('Firebase not configured. Cannot save maps.');
-      return;
-    }
-    const user = auth.currentUser;
-    if (!user) {
-      alert('Please sign in to save maps');
-      return;
-    }
-
-    const title = (document.getElementById('map-title') as HTMLInputElement)?.value;
-    if (!title) {
-      alert('Please enter a title');
-      return;
-    }
-
-    const description = (document.getElementById('map-description') as HTMLTextAreaElement)?.value;
-    const isPublic = (document.getElementById('map-public') as HTMLInputElement)?.checked;
-
-    try {
-      mapsRepository.setMap(map);
-      await mapsRepository.saveMap(user, title, description, isPublic);
-      alert('Map saved!');
-      (document.getElementById('save-map-form') as HTMLElement).style.display = 'none';
-      loadUserMaps(user.uid);
-    } catch (error) {
-      console.error('Error saving map:', error);
-      alert('Failed to save map');
-    }
-  });
-
-  document.getElementById('load-public-maps')?.addEventListener('click', async () => {
-    const maps = await mapsRepository.getPublicMaps();
-    displayMaps(maps);
-  });
-
-  if (auth) {
-    onAuthStateChanged(auth, (user) => {
-      if (user && mapsRepository) {
-        loadUserMaps(user.uid);
-      }
-    });
-  }
-}
-
-async function loadUserMaps(userId: string) {
-  if (!mapsRepository) return;
-  const maps = await mapsRepository.getUserMaps(userId);
-  displayMaps(maps);
-}
-
-function displayMaps(maps: any[]) {
-  const container = document.getElementById('saved-maps-list');
-  if (!container) return;
-
-  if (maps.length === 0) {
-    container.innerHTML = '<p>No saved maps yet</p>';
-    return;
-  }
-
-  container.innerHTML = maps.map(m => `
-    <div class="map-card">
-      <h4>${m.title}</h4>
-      <p>${m.description || ''}</p>
-      <button onclick="loadMap('${m.id}')">Open in Google Maps</button>
-      <button onclick="deleteMap('${m.id}')">Delete</button>
-    </div>
-  `).join('');
-}
-
-// --- BOOKING SEARCH ---
-function setupBookingSearch() {
-  document.getElementById('search-bookings')?.addEventListener('click', async () => {
-    if (auth && !auth.currentUser) {
-      alert('Please sign in to search bookings');
-      return;
-    }
-    
-    if (!bookingManager) {
-      alert('Booking search requires Firebase configuration. Showing manual search links instead.');
-      // Still show manual URLs
-    }
-
-    const type = (document.getElementById('booking-type') as HTMLSelectElement)?.value as any;
-    const destination = (document.getElementById('booking-destination') as HTMLInputElement)?.value;
-    if (!destination) {
-      alert('Please enter a destination');
-      return;
-    }
-
-    const checkIn = (document.getElementById('booking-checkin') as HTMLInputElement)?.value;
-    const checkOut = (document.getElementById('booking-checkout') as HTMLInputElement)?.value;
-    const passengers = parseInt((document.getElementById('booking-passengers') as HTMLInputElement)?.value || '1');
-    const budgetMin = parseFloat((document.getElementById('booking-budget-min') as HTMLInputElement)?.value || '0');
-    const budgetMax = parseFloat((document.getElementById('booking-budget-max') as HTMLInputElement)?.value || '0');
-    const currency = (document.getElementById('booking-currency') as HTMLSelectElement)?.value;
-
-    setLoading(true);
-    try {
-      const searchParams = {
-        type,
-        destination,
-        checkIn: checkIn || undefined,
-        checkOut: checkOut || undefined,
-        passengers,
-        budget: budgetMin || budgetMax ? { min: budgetMin || undefined, max: budgetMax || undefined, currency } : undefined
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient(opts: { client_id: string; scope: string; callback: (resp: { access_token?: string; error?: string }) => void }): { requestAccessToken(): void };
+        };
       };
+    };
+  }
+}
 
-      // Use new BookingAggregator (follows proper architecture)
-      let results: any[] = [];
-      const flexible = (document.getElementById('flexible-routes') as HTMLInputElement)?.checked || false;
-      
+async function runGmailImport() {
+  const clientId = import.meta.env.VITE_GMAIL_OAUTH_CLIENT_ID;
+  if (!clientId) {
+    toast("Set VITE_GMAIL_OAUTH_CLIENT_ID in .env.local first.", "err");
+    return;
+  }
+  if (!window.google?.accounts?.oauth2) {
+    toast("Google Identity Services not loaded yet — try again in a moment.", "info");
+    return;
+  }
+  $("#gmailStatus")!.textContent = "Requesting Gmail permission…";
+  const tokenClient = window.google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: "https://www.googleapis.com/auth/gmail.readonly",
+    callback: async (resp) => {
+      if (resp.error || !resp.access_token) {
+        $("#gmailStatus")!.textContent = `Permission denied (${resp.error || "no token"})`;
+        return;
+      }
+      gmailToken = resp.access_token;
+      $("#gmailStatus")!.textContent = "Importing… this can take ~30s.";
       try {
-        // Try real-time API data first (via Firebase Functions)
-        if (functions) {
-          try {
-            const realTimeData = httpsCallable(functions, 'getRealTimeBookings');
-            const from = type === 'flight' ? (prompt('Departure city/airport:') || destination) : undefined;
-            const realTimeResponse: any = await realTimeData({
-              type,
-              from,
-              to: destination,
-              date: checkIn || new Date().toISOString().split('T')[0],
-              passengers
-            });
-            
-            if (realTimeResponse.data?.results?.length > 0) {
-              results = realTimeResponse.data.results;
-            }
-          } catch (error) {
-            console.log('Real-time API failed, using aggregator:', error);
-          }
-        }
-
-        // Use BookingAggregator (normalizes and merges data)
-        if (results.length === 0) {
-          const query = {
-            type: type as any,
-            from: type === 'flight' ? (prompt('Departure city/airport:') || undefined) : undefined,
-            to: destination,
-            date: checkIn || new Date().toISOString().split('T')[0],
-            returnDate: checkOut,
-            passengers,
-            flexible
-          };
-
-          const aggregated = await bookingAggregator.search(query);
-          
-          // Convert normalized data to display format
-          if (type === 'flight' || type === 'all') {
-            results.push(...aggregated.flights.map(f => ({
-              title: `${f.segments[0]?.from.city} → ${f.segments[f.segments.length - 1]?.to.city}`,
-              provider: f.source,
-              price: f.price.amount,
-              currency: f.price.currency,
-              description: `${f.segments.length} segment(s), ${Math.floor(f.totalDuration / 60)}h ${f.totalDuration % 60}m`,
-              url: f.bookingUrl,
-              segments: f.segments,
-              layovers: f.layovers.length
-            })));
-          }
-
-          if (type === 'hotel' || type === 'all') {
-            results.push(...aggregated.hotels.map(h => ({
-              title: h.name,
-              provider: h.source,
-              price: h.price.amount,
-              currency: h.price.currency,
-              rating: h.rating.value,
-              reviews: h.rating.reviews,
-              description: `${h.amenities.join(', ')}${h.specialOffers.length > 0 ? ` | ${h.specialOffers.map(o => o.description).join(', ')}` : ''}`,
-              url: h.bookingUrl,
-              specialDeals: h.specialOffers
-            })));
-          }
-
-          if (type === 'bus' || type === 'train' || type === 'ferry') {
-            const transportResults = type === 'bus' 
-              ? await transportAPIs.searchBuses(query.from || '', destination, query.date || '')
-              : type === 'train'
-              ? await transportAPIs.searchTrains(query.from || '', destination, query.date || '')
-              : await transportAPIs.searchFerries(query.from || '', destination, query.date || '');
-            
-            results.push(...transportResults.map(t => ({
-              title: `${t.from.name} → ${t.to.name}`,
-              provider: t.operator,
-              price: t.price.amount,
-              currency: t.price.currency,
-              description: `${t.type} | ${Math.floor(t.duration / 60)}h ${t.duration % 60}m`,
-              url: t.bookingUrl
-            })));
-          }
-
-          if (type === 'experience' || type === 'all') {
-            results.push(...aggregated.experiences.map((e: any) => ({
-              title: e.name,
-              provider: e.source,
-              price: e.price,
-              currency: e.currency,
-              rating: e.rating,
-              reviews: e.reviews,
-              description: `${e.category} | ${e.duration}`,
-              url: e.url
-            })));
-          }
-
-          // Show best deals
-          if (aggregated.bestDeals.length > 0) {
-            results.unshift(...aggregated.bestDeals.map(d => ({
-              ...d.item,
-              isBestDeal: true,
-              dealReason: d.reason
-            })));
-          }
-        }
-
-        // Fallback to AI if still no results
-        if (results.length === 0 && bookingManager) {
-          try {
-            const aiResults = await bookingManager.searchBookings(searchParams);
-            results = aiResults;
-          } catch (error) {
-            console.log('AI booking search failed:', error);
-          }
-        }
-      } catch (error) {
-        console.log('Booking aggregator failed, using fallback:', error);
-        // Final fallback
-        if (bookingManager) {
-          try {
-            const aiResults = await bookingManager.searchBookings(searchParams);
-            results = aiResults;
-          } catch (error) {
-            console.log('Booking search failed:', error);
-          }
-        }
-      }
-
-      // Also generate search URLs for manual comparison
-      const searchUrls = realBookingSearch.generateSearchUrls(searchParams);
-      
-      displayBookingResults(results, searchUrls);
-      if (bookingManager && auth?.currentUser) {
-        try {
-          await bookingManager.saveSearch(auth.currentUser, searchParams, results);
-        } catch (error) {
-          console.log('Failed to save search:', error);
-        }
-      }
-    } catch (error) {
-      console.error('Error searching bookings:', error);
-      alert('Failed to search bookings. Showing manual search links instead.');
-      
-      // Show manual search URLs as fallback
-      const searchParams = {
-        type,
-        destination,
-        checkIn: checkIn || undefined,
-        checkOut: checkOut || undefined,
-        passengers: parseInt((document.getElementById('booking-passengers') as HTMLInputElement)?.value || '1')
-      };
-      const searchUrls = realBookingSearch.generateSearchUrls(searchParams);
-      displayBookingResults([], searchUrls);
-    } finally {
-      setLoading(false);
-    }
-  });
-}
-
-function displayBookingResults(results: any[], searchUrls: any[] = []) {
-  const container = document.getElementById('booking-results');
-  if (!container) return;
-
-  let html = '';
-
-  if (results.length > 0) {
-    // Show best deals first
-    const bestDeals = results.filter(r => r.isBestDeal);
-    const regularResults = results.filter(r => !r.isBestDeal);
-
-    if (bestDeals.length > 0) {
-      html += '<h3>🏆 Best Deals</h3>';
-      html += bestDeals.map(r => `
-        <div class="booking-item best-deal">
-          <div class="best-deal-badge">${r.dealReason || 'Best Deal'}</div>
-          <h4>${r.title}</h4>
-          <p><strong>Provider:</strong> ${r.provider}</p>
-          <p class="price">${bookingManager ? bookingManager.formatPrice(r.price, r.currency) : `${r.currency} ${r.price}`}</p>
-          ${r.rating ? `<p>⭐ ${r.rating}/5 (${r.reviews} reviews)</p>` : ''}
-          ${r.description ? `<p>${r.description}</p>` : ''}
-          ${r.segments ? `<p><strong>Route:</strong> ${r.segments.map((s: any) => `${s.from.city} → ${s.to.city}`).join(' → ')}</p>` : ''}
-          ${r.layovers ? `<p><strong>Layovers:</strong> ${r.layovers}</p>` : ''}
-          <a href="${r.url}" target="_blank" class="btn-primary">Book Now</a>
-        </div>
-      `).join('');
-    }
-
-    if (regularResults.length > 0) {
-      html += bestDeals.length > 0 ? '<h3>Other Options</h3>' : '';
-      html += regularResults.map(r => `
-        <div class="booking-item">
-          <h4>${r.title}</h4>
-          <p><strong>Provider:</strong> ${r.provider}</p>
-          <p class="price">${bookingManager ? bookingManager.formatPrice(r.price, r.currency) : `${r.currency} ${r.price}`}</p>
-          ${r.rating ? `<p>⭐ ${r.rating}/5 (${r.reviews} reviews)</p>` : ''}
-          ${r.description ? `<p>${r.description}</p>` : ''}
-          ${r.segments ? `<p><strong>Route:</strong> ${r.segments.map((s: any) => `${s.from.city} → ${s.to.city}`).join(' → ')}</p>` : ''}
-          ${r.layovers ? `<p><strong>Layovers:</strong> ${r.layovers}</p>` : ''}
-          ${r.specialDeals ? `<p><strong>Special Offers:</strong> ${r.specialDeals.join(', ')}</p>` : ''}
-          <a href="${r.url}" target="_blank" class="btn-primary">Book Now</a>
-        </div>
-      `).join('');
-    }
-  }
-
-  // Add manual search URLs
-  if (searchUrls.length > 0) {
-    html += '<div style="margin-top: 2em;"><h4>Or search directly on these sites:</h4>';
-    html += searchUrls.map(url => `
-      <a href="${url.url}" target="_blank" class="btn-secondary" style="margin: 0.5em; display: inline-block;">
-        ${url.provider}
-      </a>
-    `).join('');
-    html += '</div>';
-  }
-
-  if (html === '') {
-    html = '<p>No results found. Try searching directly on booking sites.</p>';
-  }
-
-  container.innerHTML = html;
-}
-
-// --- COMMUNITY ---
-function setupCommunity() {
-  if (!communityManager) {
-    console.warn('Community manager not available');
-    return;
-  }
-  
-  // Forum
-  document.getElementById('create-post-btn')?.addEventListener('click', () => {
-    if (!auth) {
-      alert('Firebase not configured. Community features require Firebase.');
-      return;
-    }
-    const title = prompt('Post title:');
-    const content = prompt('Post content:');
-    if (title && content) {
-      const user = auth.currentUser;
-      if (user && communityManager) {
-        communityManager.createPost(user, title, content).then(() => {
-          loadForumPosts();
+        const r = await call<{ accessToken: string }, { imported: number }>("importGmailBookings", {
+          accessToken: gmailToken,
         });
-      } else {
-        alert('Please sign in to create posts');
+        $("#gmailStatus")!.textContent = `Imported ${r.imported} bookings.`;
+        toast(`Imported ${r.imported} bookings`, "ok");
+      } catch (e) {
+        $("#gmailStatus")!.textContent = (e as Error).message;
       }
-    }
+    },
   });
-
-  // Reviews
-  document.getElementById('submit-review')?.addEventListener('click', async () => {
-    if (!auth || !communityManager) {
-      alert('Firebase not configured. Reviews require Firebase.');
-      return;
-    }
-    const user = auth.currentUser;
-    if (!user) {
-      alert('Please sign in to submit a review');
-      return;
-    }
-
-    const location = (document.getElementById('review-location') as HTMLInputElement)?.value;
-    const rating = parseInt((document.getElementById('review-rating') as HTMLInputElement)?.value || '5');
-    const title = (document.getElementById('review-title') as HTMLInputElement)?.value;
-    const content = (document.getElementById('review-content') as HTMLTextAreaElement)?.value;
-
-    if (!location || !title || !content) {
-      alert('Please fill in all fields');
-      return;
-    }
-
-    try {
-      await communityManager.createReview(user, location, rating, title, content);
-      alert('Review submitted!');
-      loadReviews(location);
-    } catch (error) {
-      console.error('Error submitting review:', error);
-    }
-  });
-
-  // AI Chat
-  document.getElementById('send-ai-message')?.addEventListener('click', async () => {
-    if (!communityManager) {
-      alert('AI chat requires Firebase and Gemini API configuration.');
-      return;
-    }
-    const input = document.getElementById('ai-chat-input') as HTMLInputElement;
-    const message = input?.value;
-    if (!message) return;
-
-    const messagesContainer = document.getElementById('ai-chat-messages');
-    if (messagesContainer) {
-      messagesContainer.innerHTML += `<div><strong>You:</strong> ${message}</div>`;
-    }
-
-    input.value = '';
-    setLoading(true);
-
-    try {
-      const response = await communityManager.chatWithAI(message);
-      if (messagesContainer) {
-        messagesContainer.innerHTML += `<div><strong>AI:</strong> ${response}</div>`;
-      }
-    } catch (error) {
-      console.error('Error chatting with AI:', error);
-      if (messagesContainer) {
-        messagesContainer.innerHTML += `<div><strong>AI:</strong> Error: ${error instanceof Error ? error.message : 'Failed to get response'}</div>`;
-      }
-    } finally {
-      setLoading(false);
-    }
-  });
-
-  loadForumPosts();
+  tokenClient.requestAccessToken();
 }
 
-async function loadForumPosts() {
-  if (!communityManager) return;
-  const posts = await communityManager.getPosts();
-  const container = document.getElementById('forum-posts');
-  if (container) {
-    container.innerHTML = posts.map(p => `
-      <div class="forum-post">
-        <h4>${p.title}</h4>
-        <p>${p.content}</p>
-        <small>By ${p.userName} • ${p.likes} likes • ${p.replies} replies</small>
-      </div>
-    `).join('');
+async function refreshInbox() {
+  const body = $("#inboxBody")!;
+  const u = realUser();
+  if (!u || !db) { body.innerHTML = "<div class='empty'>Sign in to view your imported bookings.</div>"; return; }
+  body.innerHTML = "<div class='skeleton'></div>";
+  try {
+    const list = await getDocsOnce<{
+      id: string; type: string; provider: string; confirmationCode?: string;
+      from?: { iata?: string }; to?: { iata?: string }; departureLocal?: string;
+      hotelName?: string; checkIn?: string; checkOut?: string;
+      totalCost?: { amount: number; currency: string }; importedAt: string;
+    }>(`users/${u.uid}/bookings`);
+    if (!list.length) { body.innerHTML = "<div class='empty'>No imports yet. Open a trip → Email tab to import.</div>"; return; }
+    body.innerHTML = list.map((b) => {
+      const subtitle = b.type === "flight"
+        ? `${b.from?.iata || "?"} → ${b.to?.iata || "?"} · ${b.departureLocal || ""}`
+        : b.type === "hotel"
+          ? `${b.hotelName || ""} · ${b.checkIn || ""} → ${b.checkOut || ""}`
+          : (b.confirmationCode || "");
+      return `
+        <div class="quote">
+          <div class="src"><strong>${esc(b.provider)}</strong> · ${esc(b.type)}<small>${esc(subtitle)}</small></div>
+          <div class="price">${b.totalCost ? `${esc(b.totalCost.currency)} ${esc(b.totalCost.amount)}` : ""}</div>
+        </div>`;
+    }).join("");
+  } catch (e) {
+    body.innerHTML = `<div class='empty'>${esc((e as Error).message)}</div>`;
   }
 }
 
-async function loadReviews(location: string) {
-  if (!communityManager) return;
-  const reviews = await communityManager.getReviews(location);
-  const container = document.getElementById('reviews-list');
-  if (container) {
-    container.innerHTML = reviews.map(r => `
-      <div class="review-item">
-        <h4>${r.title} - ⭐ ${r.rating}/5</h4>
-        <p>${r.content}</p>
-        <small>By ${r.userName}</small>
+// ── Geofence ───────────────────────────────────────────────────────────────
+function paintTripGeofence(t: SavedTrip, body: HTMLElement) {
+  body.innerHTML = `
+    <div class="insight-card">
+      <h4>Proximity notifications</h4>
+      <p>Atlas pings you when you walk within 200m of an activity on this trip's itinerary. Browser tab must stay open. Battery use rises while active.</p>
+      <div class="row-actions" style="margin-top:10px">
+        <button class="btn clay sm" id="geofenceToggle">${geofenceActive ? "Stop" : "Start"}</button>
       </div>
-    `).join('');
+      <p class="tag" id="geofenceStatus" style="margin-top:10px">${geofenceActive ? "Active — watching." : "Idle."}</p>
+    </div>`;
+  $("#geofenceToggle")?.addEventListener("click", () => toggleGeofence(t));
+}
+
+async function toggleGeofence(t: SavedTrip) {
+  if (geofenceActive) {
+    geofencer.stop();
+    geofenceActive = false;
+    $("#geofenceStatus")!.textContent = "Stopped.";
+    $("#geofenceToggle")!.textContent = "Start";
+    return;
   }
-}
-
-// --- CONTENT CREATOR ---
-function setupContentCreator() {
-  document.getElementById('generate-content-btn')?.addEventListener('click', async () => {
-    if (!contentCreator) {
-      alert('Content creator requires Firebase configuration.');
-      return;
-    }
-    if (auth && !auth.currentUser) {
-      alert('Please sign in to generate content');
-      return;
-    }
-
-    const platform = (document.getElementById('content-platform') as HTMLSelectElement)?.value as any;
-    const mediaInput = document.getElementById('content-media') as HTMLInputElement;
-    const style = (document.getElementById('content-style') as HTMLInputElement)?.value;
-
-    if (!mediaInput?.files || mediaInput.files.length === 0) {
-      alert('Please select media files');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const files = Array.from(mediaInput.files);
-      const currentUser = auth?.currentUser;
-      if (!currentUser) {
-        alert('Please sign in to generate content');
-        setLoading(false);
-        return;
+  const fences: Geofence[] = [];
+  if (currentItinerary) {
+    for (const day of currentItinerary.days) {
+      for (const a of day.activities) {
+        if (a.location) fences.push({
+          id: `${day.day}-${a.time}`, lat: a.location.lat, lon: a.location.lon,
+          radiusM: 200, title: a.title, message: a.description,
+        });
       }
-      const contents = await contentCreator.generateContent(currentUser, files, platform, undefined, style);
-      displayGeneratedContent(contents);
-    } catch (error) {
-      console.error('Error generating content:', error);
-      alert('Failed to generate content');
-    } finally {
-      setLoading(false);
     }
+  }
+  if (t.lat != null && t.lon != null && fences.length === 0) {
+    fences.push({ id: t.id, lat: t.lat, lon: t.lon, radiusM: 500, title: t.name, message: "You've arrived." });
+  }
+  if (!fences.length) { toast("Generate an itinerary first.", "info"); return; }
+  await geofencer.requestNotificationPermission();
+  geofencer.start(fences, (f, d) => {
+    toast(`Near ${f.title} (${Math.round(d)}m)`, "ok");
+  });
+  geofenceActive = true;
+  $("#geofenceStatus")!.textContent = `Watching ${fences.length} points.`;
+  $("#geofenceToggle")!.textContent = "Stop";
+}
+
+// silence unused-type imports — these are exported by services
+export type { JournalEntry };
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+function initTripTabs() {
+  document.body.addEventListener("click", (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-trip-tab]");
+    if (t && t.dataset.tripTab) paintTripTab(t.dataset.tripTab as typeof currentTripTab);
   });
 }
 
-function displayGeneratedContent(contents: any[]) {
-  const container = document.getElementById('generated-content-list');
-  if (!container) return;
-
-  container.innerHTML = contents.map(c => `
-    <div class="content-preview">
-      ${c.type === 'image' ? `<img src="${c.content}" alt="Generated content" />` : ''}
-      ${c.type === 'video' ? `<video src="${c.content}" controls></video>` : ''}
-      <p><strong>Caption:</strong> ${c.caption}</p>
-      <p><strong>Hashtags:</strong> ${c.hashtags?.join(' ') || ''}</p>
-      <button onclick="copyToClipboard('${c.caption}')">Copy Caption</button>
-    </div>
-  `).join('');
-}
-
-// --- IMMIGRATION ---
-function setupImmigration() {
-  document.getElementById('get-visa-info')?.addEventListener('click', async () => {
-    if (!immigrationManager) {
-      alert('Immigration info requires Firebase and Gemini API configuration.');
-      return;
-    }
-    const country = (document.getElementById('visa-country') as HTMLInputElement)?.value;
-    if (!country) {
-      alert('Please enter a country');
-      return;
-    }
-
-    const nationality = (document.getElementById('visa-nationality') as HTMLInputElement)?.value || 'US';
-    setLoading(true);
-
-    try {
-      const visaInfo = await immigrationManager.getVisaInfo(country, nationality);
-      const immigrationInfo = await immigrationManager.getImmigrationInfo(country);
-
-      displayVisaInfo(visaInfo);
-      displayImmigrationInfo(immigrationInfo);
-    } catch (error) {
-      console.error('Error getting visa info:', error);
-      alert('Failed to get visa information');
-    } finally {
-      setLoading(false);
-    }
+function initToolsMenu() {
+  const btn = $("#toolsBtn");
+  const menu = $("#toolsMenu");
+  if (!btn || !menu) return;
+  const items = () => Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+  const setOpen = (open: boolean) => {
+    menu.style.display = open ? "block" : "none";
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) items()[0]?.focus();
+  };
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setOpen(menu.style.display !== "block");
+  });
+  btn.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); }
+  });
+  menu.addEventListener("keydown", (e) => {
+    const list = items();
+    const idx = list.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "Escape") { setOpen(false); (btn as HTMLElement).focus(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); list[(idx + 1) % list.length]?.focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); list[(idx - 1 + list.length) % list.length]?.focus(); }
+  });
+  document.addEventListener("click", (e) => {
+    if (!menu.contains(e.target as Node) && e.target !== btn) setOpen(false);
   });
 }
 
-function displayVisaInfo(info: any) {
-  const container = document.getElementById('visa-info-display');
-  if (!container || !info) return;
-
-  container.innerHTML = `
-    <div class="visa-info">
-      <h4>Visa Information for ${info.country}</h4>
-      <p><strong>Visa Type:</strong> ${info.visaType}</p>
-      <p><strong>Requirements:</strong></p>
-      <ul>${info.requirements.map((r: string) => `<li>${r}</li>`).join('')}</ul>
-      <p><strong>Processing Time:</strong> ${info.processingTime}</p>
-      <p><strong>Cost:</strong> ${info.cost}</p>
-      <p><strong>Validity:</strong> ${info.validity}</p>
-      ${info.isEVisaAvailable ? `<p><strong>E-Visa Available:</strong> Yes</p>` : ''}
-      ${info.evisaWebsite ? `<a href="${info.evisaWebsite}" target="_blank">Apply for E-Visa</a>` : ''}
-      <a href="${info.officialWebsite}" target="_blank">Official Website</a>
-    </div>
-  `;
-}
-
-function displayImmigrationInfo(info: any) {
-  const container = document.getElementById('immigration-info-display');
-  if (!container || !info) return;
-
-  container.innerHTML = `
-    <div>
-      <h4>Immigration Information for ${info.country}</h4>
-      <p><strong>Entry Requirements:</strong></p>
-      <ul>${info.entryRequirements.map((r: string) => `<li>${r}</li>`).join('')}</ul>
-      <p><strong>Customs Regulations:</strong></p>
-      <ul>${info.customsRegulations.map((r: string) => `<li>${r}</li>`).join('')}</ul>
-      <p><strong>Health Requirements:</strong></p>
-      <ul>${info.healthRequirements.map((r: string) => `<li>${r}</li>`).join('')}</ul>
-      ${info.officialResources.length > 0 ? `
-        <p><strong>Official Resources:</strong></p>
-        <ul>${info.officialResources.map((r: any) => `<li><a href="${r.url}" target="_blank">${r.name}</a></li>`).join('')}</ul>
-      ` : ''}
-    </div>
-  `;
-}
-
-// --- INITIALIZATION ---
-
-document.addEventListener('DOMContentLoaded', () => {
-    // Attach authentication listeners
-    if(signInButton) signInButton.addEventListener('click', signIn);
-    
-    // Multi-provider auth buttons
-    document.getElementById('sign-in-google')?.addEventListener('click', () => signInWithProvider(googleProvider, 'Google'));
-    document.getElementById('sign-in-apple')?.addEventListener('click', () => signInWithProvider(appleProvider, 'Apple'));
-    document.getElementById('sign-in-facebook')?.addEventListener('click', () => signInWithProvider(facebookProvider, 'Facebook'));
-    document.getElementById('sign-in-twitter')?.addEventListener('click', () => signInWithProvider(twitterProvider, 'Twitter'));
-    document.getElementById('sign-in-github')?.addEventListener('click', () => signInWithProvider(githubProvider, 'GitHub'));
-    document.getElementById('sign-in-email')?.addEventListener('click', signInWithEmail);
-    document.getElementById('sign-up-email')?.addEventListener('click', signUpWithEmail);
-    
-    if(signOutButton) signOutButton.addEventListener('click', doSignOut);
-    
-    // Setup media selection
-    if (mediaSelection) {
-      mediaSelection.addEventListener("click", (e) => {
-        const target = e.target as HTMLElement;
-        
-        // Handle image clicks
-        if (target.tagName === "IMG") {
-          mediaSelection.querySelectorAll("img, .upload-card").forEach((el) => 
-            el.classList.remove("selected")
-          );
-          target.classList.add("selected");
-          selectedMedia = target as HTMLImageElement;
-        }
-        
-        // Handle upload card click
-        if (target.closest("#upload-card") || target.id === "upload-card") {
-          const imageUpload = document.getElementById("image-upload") as HTMLInputElement;
-          imageUpload?.click();
-        }
-      });
-    }
-    
-    // Setup prompt button
-    if (promptButton) {
-      promptButton.addEventListener("click", async () => {
-        if (auth && !auth.currentUser) {
-            alert("Please sign in to use this feature.");
-            return;
-        }
-        if (!selectedMedia) {
-          alert("Please select an image first.");
-          return;
-        }
-
-        setLoading(true);
-
-        try {
-          // Get image data
-          const imageData = await imageToGenerativePart(selectedMedia.src);
-          const mimeType = selectedMedia.src.startsWith("data:") 
-            ? selectedMedia.src.split(";")[0].split(":")[1] 
-            : "image/jpeg";
-
-          // Try reverse image search first for pre-analysis
-          let preAnalysis: string | null = null;
-          if (reverseImageSearch) {
-            try {
-              preAnalysis = await reverseImageSearch.preAnalyze(imageData, mimeType);
-              if (preAnalysis) {
-                console.log("Pre-analysis:", preAnalysis);
-              }
-            } catch (error) {
-              console.log("Reverse image search not available or failed:", error);
-            }
-          }
-
-          // Use Gemini Vision API
-          if (!genAI) {
-            throw new Error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to .env.local');
-          }
-          const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
-          let prompt = "What is the name of the place where I can see this image? Only tell me the place name and nothing else.";
-          
-          // Enhance prompt with pre-analysis if available
-          if (preAnalysis) {
-            prompt = `${preAnalysis}\n\n${prompt}`;
-          }
-
-          const image = {
-            inlineData: {
-              data: imageData,
-              mimeType: mimeType,
-            },
-          };
-
-          const result = await model.generateContent([prompt, image]);
-          let locationName = result.response.text().trim();
-          
-          // Clean up location name (remove quotes, extra text)
-          locationName = locationName.replace(/^["']|["']$/g, "").split("\n")[0].trim();
-
-          updateUIAfterLocationIdentified(locationName);
-          
-          if (functions) {
-            const getTravelAssistantResponse = httpsCallable(functions, 'getTravelAssistantResponse');
-            const response: any = await getTravelAssistantResponse({ locationQuery: locationName });
-            updateUIAfterBackendResponse(response.data);
-          } else {
-            // Show location name even without backend
-            if (responseContainer) {
-              responseContainer.innerHTML = `<h2>${locationName}</h2><p>Backend services not configured. Map and additional info unavailable.</p>`;
-            }
-          }
-
-        } catch (error: any) {
-            console.error("Error identifying location:", error);
-            if (responseContainer) {
-              responseContainer.innerHTML = `Error: ${error.message || "Failed to identify location. Please try again."}`;
-            }
-            
-        // Try reverse image search as fallback
-        if (reverseImageSearch && functions) {
-          try {
-            const imageData = await imageToGenerativePart(selectedMedia.src);
-            const mimeType = selectedMedia.src.startsWith("data:") 
-              ? selectedMedia.src.split(";")[0].split(":")[1] 
-              : "image/jpeg";
-            const fallbackResult = await reverseImageSearch.search(imageData, mimeType);
-            if (fallbackResult && fallbackResult.location) {
-              updateUIAfterLocationIdentified(fallbackResult.location);
-              const getTravelAssistantResponse = httpsCallable(functions, 'getTravelAssistantResponse');
-              const response: any = await getTravelAssistantResponse({ locationQuery: fallbackResult.location });
-              updateUIAfterBackendResponse(response.data);
-            }
-          } catch (fallbackError) {
-            console.error("Fallback also failed:", fallbackError);
-          }
-        }
-        } finally {
-            setLoading(false);
-        }
-      });
-    }
-    
-    // Setup todo list
-if (addTodoButton) {
-  addTodoButton.addEventListener("click", () => {
-        if (!auth || !db) {
-          alert("Firebase not configured. To-do list requires Firebase setup.");
-          return;
-        }
-    const user = auth.currentUser;
-    if (!user) {
-        alert("Please sign in to add a to-do item.");
-        return;
-    }
-    const taskText = todoInput.value.trim();
-    if (taskText !== "") {
-      saveTodo(user, taskText);
-      todoInput.value = "";
-    }
+function initSheetClosers() {
+  document.body.addEventListener("click", (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>("[data-close]");
+    if (t && t.dataset.close) closeSheet(t.dataset.close);
+  });
+  $$<HTMLDivElement>(".sheet-backdrop").forEach((bd) => {
+    bd.addEventListener("click", (e) => {
+      if (e.target === bd) bd.classList.remove("is-open");
+    });
   });
 }
 
-    // Setup review refinement
-if (refineReviewButton) {
-  refineReviewButton.addEventListener("click", async () => {
-    if (!reviewText.value) return;
-        if (!genAI) {
-          alert("Gemini API key not configured. Please add VITE_GEMINI_API_KEY to .env.local");
-          return;
-        }
-    const originalReview = reviewText.value;
-    reviewText.value = "Refining review...";
-
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-    const prompt = `Refine this review to make it more engaging and descriptive: ${originalReview}`;
-
-    try {
-      const result = await model.generateContent(prompt);
-      reviewText.value = result.response.text();
-    } catch (error) {
-          reviewText.value = `Error: Could not refine the review. ${error instanceof Error ? error.message : ''}`;
-    }
-  });
-}
-
-    // Initialize all features
-    loadGoogleMapsScript();
-    setupFileUpload();
-    setupTabs();
-    setupSocialSharing();
-    setupMapsRepository();
-    setupBookingSearch();
-    setupCommunity();
-    setupContentCreator();
-    setupImmigration();
-    setupTravelIntelligence();
-    setupTranslator();
+document.addEventListener("DOMContentLoaded", () => {
+  initRouter();
+  initIdentify();
+  initTabs();
+  initResultActions();
+  initBookings();
+  initAirports();
+  initVisas();
+  initTranslate();
+  initCommunity();
+  initAssistant();
+  initAuth();
+  initItin();
+  initVaultForm();
+  initToolsMenu();
+  initSheetClosers();
+  initTripTabs();
+  if (!functionsReady) {
+    const badge = $("#heroBadge");
+    if (badge) badge.textContent = "Demo mode · backend not configured";
+    toast("Backend not configured — add VITE_FIREBASE_* keys to .env.local. UI runs in demo-only mode.", "err");
+  }
 });
-
-// Make functions available globally for onclick handlers
-(window as any).loadMap = async (mapId: string) => {
-  if (!mapsRepository) {
-    alert('Maps repository not available');
-    return;
-  }
-  const savedMap = await mapsRepository.loadMap(mapId);
-  if (savedMap) {
-    mapsRepository.openInGoogleMaps(savedMap);
-  }
-};
-
-(window as any).deleteMap = async (mapId: string) => {
-  if (!mapsRepository) {
-    alert('Maps repository not available');
-    return;
-  }
-  if (confirm('Are you sure you want to delete this map?')) {
-    await mapsRepository.deleteMap(mapId);
-    if (auth?.currentUser) {
-      loadUserMaps(auth.currentUser.uid);
-    }
-  }
-};
-
-(window as any).copyToClipboard = async (text: string) => {
-  if (!contentCreator) {
-    alert('Content creator not available');
-    return;
-  }
-  await contentCreator.copyToClipboard(text);
-  alert('Copied to clipboard!');
-};
-
-// --- TRAVEL INTELLIGENCE ---
-function setupTravelIntelligence() {
-  document.getElementById('get-intelligence')?.addEventListener('click', async () => {
-    if (!travelIntelligence) {
-      alert('Travel intelligence requires Gemini API configuration.');
-      return;
-    }
-
-    const location = (document.getElementById('intelligence-location') as HTMLInputElement)?.value;
-    if (!location) {
-      alert('Please enter a location');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Try server-side scraping first (via Firebase Functions)
-      let intelligence: any = null;
-      
-      if (functions) {
-        try {
-          const scrapeIntelligence = httpsCallable(functions, 'scrapeTravelIntelligence');
-          const response: any = await scrapeIntelligence({ location, sources: ['reddit', 'youtube'] });
-          intelligence = response.data;
-        } catch (error) {
-          console.log('Server-side scraping failed, using client-side:', error);
-        }
-      }
-
-      // Fallback to client-side
-      if (!intelligence && travelIntelligence) {
-        intelligence = await travelIntelligence.getIntelligence(location);
-      }
-
-      if (intelligence) {
-        displayTravelIntelligence(intelligence);
-      } else {
-        alert('Failed to get travel intelligence. Please check your API configuration.');
-      }
-    } catch (error) {
-      console.error('Error getting travel intelligence:', error);
-      alert('Failed to get travel intelligence');
-    } finally {
-      setLoading(false);
-    }
-  });
-}
-
-function displayTravelIntelligence(intel: any) {
-  const container = document.getElementById('intelligence-display');
-  if (!container) return;
-
-  let html = '';
-
-  // Scams & Warnings
-  if (intel.localTips) {
-    html += `<div id="scams-warnings"><h4>⚠️ Scams & Warnings</h4>`;
-    if (intel.localTips.scams?.length > 0) {
-      html += `<p><strong>Common Scams:</strong></p><ul>${intel.localTips.scams.map((s: string) => `<li>${s}</li>`).join('')}</ul>`;
-    }
-    if (intel.localTips.bribes?.length > 0) {
-      html += `<p><strong>About Bribes:</strong></p><ul>${intel.localTips.bribes.map((b: string) => `<li>${b}</li>`).join('')}</ul>`;
-    }
-    html += `</div>`;
-  }
-
-  // Transportation
-  if (intel.transportation) {
-    html += `<div id="transportation-info"><h4>🚕 Transportation</h4>`;
-    if (intel.transportation.taxis) {
-      html += `<p><strong>Taxis:</strong> ${intel.transportation.taxis.info}</p>`;
-      if (intel.transportation.taxis.warnings?.length > 0) {
-        html += `<p><strong>Warnings:</strong> ${intel.transportation.taxis.warnings.join(', ')}</p>`;
-      }
-    }
-    if (intel.transportation.tuktuks) {
-      html += `<p><strong>Tuktuks:</strong> ${intel.transportation.tuktuks.info}</p>`;
-    }
-    html += `</div>`;
-  }
-
-  // SIM Cards
-  if (intel.simCards) {
-    html += `<div id="sim-card-info"><h4>📱 SIM Cards</h4>`;
-    if (intel.simCards.providers?.length > 0) {
-      intel.simCards.providers.forEach((provider: any) => {
-        html += `<div><strong>${provider.name}</strong> - ${provider.prices}`;
-        if (provider.locations?.length > 0) {
-          html += `<ul>${provider.locations.map((loc: any) => `<li>${loc.name}: ${loc.address}</li>`).join('')}</ul>`;
-        }
-        html += `</div>`;
-      });
-    }
-    html += `</div>`;
-  }
-
-  // Currency
-  if (intel.currency) {
-    html += `<div id="currency-info"><h4>💰 Currency</h4>`;
-    html += `<p><strong>Local Currency:</strong> ${intel.currency.localCurrency}</p>`;
-    html += `<p><strong>Exchange Rate:</strong> 1 USD = ${intel.currency.exchangeRate} ${intel.currency.localCurrency}</p>`;
-    if (intel.currency.cashRequired) {
-      html += `<p><strong>⚠️ Cash Required:</strong> Yes</p>`;
-    }
-    if (intel.currency.whereToExchange?.length > 0) {
-      html += `<p><strong>Where to Exchange:</strong> ${intel.currency.whereToExchange.join(', ')}</p>`;
-    }
-    html += `</div>`;
-  }
-
-  // Cultural
-  if (intel.cultural) {
-    html += `<div id="cultural-info"><h4>🌍 Cultural Tips</h4>`;
-    if (intel.cultural.greetings?.length > 0) {
-      html += `<p><strong>Greetings:</strong></p><ul>`;
-      intel.cultural.greetings.forEach((g: any) => {
-        html += `<li>${g.phrase} (${g.pronunciation}) - ${g.when}</li>`;
-      });
-      html += `</ul>`;
-    }
-    if (intel.cultural.importantWords?.length > 0) {
-      html += `<p><strong>Important Words:</strong></p><ul>`;
-      intel.cultural.importantWords.forEach((w: any) => {
-        html += `<li>${w.word} (${w.translation}) - ${w.pronunciation}</li>`;
-      });
-      html += `</ul>`;
-    }
-    html += `</div>`;
-  }
-
-  container.innerHTML = html;
-}
-
-// --- TRANSLATOR ---
-function setupTranslator() {
-  document.getElementById('translate-btn')?.addEventListener('click', async () => {
-    if (!translator) {
-      alert('Translator requires Gemini API configuration.');
-      return;
-    }
-
-    const text = (document.getElementById('translate-text') as HTMLInputElement)?.value;
-    if (!text) {
-      alert('Please enter text to translate');
-      return;
-    }
-
-    const targetLang = (document.getElementById('target-language') as HTMLSelectElement)?.value;
-
-    setLoading(true);
-    try {
-      const translation = await translator.translate(text, targetLang);
-      const container = document.getElementById('translation-result');
-      if (container) {
-        container.innerHTML = `
-          <div class="translation-item">
-            <p><strong>Original:</strong> ${translation.original}</p>
-            <p><strong>Translated:</strong> ${translation.translated}</p>
-            ${translation.pronunciation ? `<p><strong>Pronunciation:</strong> ${translation.pronunciation}</p>` : ''}
-          </div>
-        `;
-      }
-    } catch (error) {
-      console.error('Translation error:', error);
-      alert('Translation failed');
-    } finally {
-      setLoading(false);
-    }
-  });
-
-  document.getElementById('translate-voice-btn')?.addEventListener('click', async () => {
-    if (!translator) {
-      alert('Translator requires Gemini API configuration.');
-      return;
-    }
-
-    const text = (document.getElementById('translate-text') as HTMLInputElement)?.value;
-    if (!text) {
-      alert('Please enter text to translate');
-      return;
-    }
-
-    const targetLang = (document.getElementById('target-language') as HTMLSelectElement)?.value;
-
-    setLoading(true);
-    try {
-      const translation = await translator.translateWithVoice(text, targetLang);
-      const container = document.getElementById('translation-result');
-      if (container) {
-        container.innerHTML = `
-          <div class="translation-item">
-            <p><strong>Original:</strong> ${translation.original}</p>
-            <p><strong>Translated:</strong> ${translation.translated}</p>
-            ${translation.pronunciation ? `<p><strong>Pronunciation:</strong> ${translation.pronunciation}</p>` : ''}
-            ${translation.audioUrl ? `<audio controls src="${translation.audioUrl}"></audio>` : ''}
-          </div>
-        `;
-      }
-    } catch (error) {
-      console.error('Translation error:', error);
-      alert('Translation failed');
-    } finally {
-      setLoading(false);
-    }
-  });
-
-  document.getElementById('learn-phrases-btn')?.addEventListener('click', async () => {
-    if (!translator) {
-      alert('Translator requires Gemini API configuration.');
-      return;
-    }
-
-    const location = (document.getElementById('phrase-location') as HTMLInputElement)?.value;
-    if (!location) {
-      alert('Please enter a location');
-      return;
-    }
-
-    const category = (document.getElementById('phrase-category') as HTMLSelectElement)?.value as any;
-
-    setLoading(true);
-    try {
-      const phrases = await translator.learnPhrases(location, category);
-      const container = document.getElementById('phrases-list');
-      if (container) {
-        container.innerHTML = phrases.map(p => `
-          <div class="phrase-item">
-            <p><strong>${p.english}</strong></p>
-            <p>${p.local} (${p.pronunciation})</p>
-            ${p.audioUrl ? `<audio controls src="${p.audioUrl}"></audio>` : ''}
-          </div>
-        `).join('');
-      }
-    } catch (error) {
-      console.error('Error learning phrases:', error);
-      alert('Failed to load phrases');
-    } finally {
-      setLoading(false);
-    }
-  });
-}
