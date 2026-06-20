@@ -402,6 +402,31 @@ function paintIdentify(r: IdentifyResult) {
   $("#mapName")!.textContent = r.name;
   $("#mapSub")!.textContent = `${r.city || r.country}`;
   $("#stampCount")!.textContent = "Identified · ready to plan";
+  paintMap(r.lat, r.lon, r.name);
+}
+
+// Swap the decorative map placeholder for a real, keyless OpenStreetMap embed
+// centred on the identified place (no API key, no billing, no exposed key).
+function paintMap(lat: number, lon: number, name: string) {
+  const mock = $("#mapMock");
+  if (!mock || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  const d = 0.02; // ~2km bounding box
+  const bbox = `${lon - d},${lat - d},${lon + d},${lat + d}`;
+  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lon}`;
+  let frame = mock.querySelector<HTMLIFrameElement>("iframe.map-live");
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.className = "map-live";
+    frame.loading = "lazy";
+    frame.setAttribute("title", `Map of ${name}`);
+    mock.insertBefore(frame, mock.firstChild);
+  }
+  frame.src = src;
+  frame.setAttribute("title", `Map of ${name}`);
+  mock.classList.add("has-live");
+
+  const full = $<HTMLButtonElement>("#openFullMap");
+  if (full) full.onclick = () => window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=14/${lat}/${lon}`, "_blank", "noopener");
 }
 
 async function loadIntelAndPaint(r: IdentifyResult) {
@@ -433,8 +458,42 @@ const WEATHER_CODES: Record<number, string> = {
   95: "Thunderstorm", 96: "Thunder hail", 99: "Severe thunder",
 };
 
+function weatherEmoji(code: number): string {
+  if (code === 0) return "☀️";
+  if (code <= 2) return "🌤️";
+  if (code === 3) return "☁️";
+  if (code <= 48) return "🌫️";
+  if (code <= 55) return "🌦️";
+  if (code <= 65) return "🌧️";
+  if (code <= 77) return "🌨️";
+  if (code <= 82) return "🌧️";
+  if (code >= 95) return "⛈️";
+  return "🌡️";
+}
+
+function renderForecast(days: DestinationIntel["weather"]) {
+  const card = $("#forecastCard");
+  const strip = $("#forecastStrip");
+  if (!card || !strip) return;
+  if (!days?.length) { card.style.display = "none"; return; }
+  const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  strip.innerHTML = days.slice(0, 7).map((d) => {
+    const [y, m, dd] = String(d.date).split("-").map(Number);
+    const label = dow[new Date(y, (m || 1) - 1, dd || 1).getDay()] || "";
+    return `
+      <div class="forecast-day">
+        <div class="fc-dow">${esc(label)}</div>
+        <div class="fc-ico" title="${esc(WEATHER_CODES[d.weatherCode] || "")}">${weatherEmoji(d.weatherCode)}</div>
+        <div class="fc-hi">${Math.round(d.tempMaxC)}°</div>
+        <div class="fc-lo">${Math.round(d.tempMinC)}°</div>
+      </div>`;
+  }).join("");
+  card.style.display = "";
+}
+
 function paintIntel(i: DestinationIntel) {
   lastIntel = i;
+  renderForecast(i.weather);
   const cc = i.geo?.countryCode || "";
   const today = i.weather?.[0];
   // Show the destination's actual local time when we know its timezone; fall
