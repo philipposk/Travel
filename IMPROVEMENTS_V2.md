@@ -53,6 +53,20 @@ This pass fixes the security + correctness + accessibility findings.
 - **Money math:** group-expense splits guard empty arrays (no NaN), fall back to equal split on non-positive share sums, and scale `exact` splits so balances net to zero; price-watch baseline accepts a legitimate `0`.
 - **Links/dates:** Travelpayouts doesn't double-prefix absolute affiliate URLs; itinerary day count computed from UTC date-only midnights (DST-safe).
 
+## Research-driven perf / cost pass (merged to main, ongoing on improve/v2)
+Sourced from a multi-agent research workflow (competitor repos, Reddit pain points, perf/cost techniques) + a self perf-audit.
+- **Gemini 1.5 → 2.5 migration:** all calls now use `gemini-2.5-flash` / `gemini-2.5-flash-lite` (current, cheaper, faster; 1.5 is being deprecated). ~big LLM cost cut.
+- **Native JSON mode:** `responseMimeType: application/json` on every JSON-parsing call → fewer parse-failure retries (each retry was a full paid call) and fewer tokens.
+- **Memoized Gemini client** (was rebuilt per call, incl. per email in the import loop).
+- **`setGlobalOptions`:** concurrency 80, 512 MiB, maxInstances 10 — fewer cold starts, lower bill, runaway-cost ceiling.
+- **Destination-intel TTL cache** (Firestore `intelCache`, 6h): every identify/airport/visa lookup hit a 9-API fan-out; repeats now serve from cache. *(Add a Firestore TTL policy on `expireAt` in the console for auto-cleanup.)*
+- **Daily FX cache** (in-memory) — ECB rates change once/day.
+- **`searchExperiences`:** geocode once (was twice) + run both POI providers in parallel.
+- **Frontend:** Messaging SDK lazy-loaded (≈43K off eager load), preconnect/dns-prefetch to Firebase + map hosts, `loading="lazy"` on below-fold images.
+- **Anti-hallucination:** every AI itinerary activity gets a "verify on map" link.
+
+> Note: the model migration + JSON mode take effect once functions are deployed with a real `GEMINI_API_KEY`; they can't be exercised in local demo mode.
+
 ## Verification
 - `tsc --noEmit` (frontend) — clean
 - `functions` `tsc --noEmit` — clean
