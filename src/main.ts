@@ -26,7 +26,6 @@ import {
   setDoc,
   deleteDoc,
 } from "firebase/firestore";
-import { getMessaging, getToken, onMessage, isSupported as fcmSupported } from "firebase/messaging";
 import { DocumentVault, type VaultDocMeta, type DocKind } from "./services/documentVault";
 import { downloadICS, type ICSEvent } from "./services/icsExport";
 import { TripJournal, type JournalEntry } from "./services/tripJournal";
@@ -1602,6 +1601,9 @@ async function ensureFcmToken(): Promise<string | undefined> {
   if (fcmTokenCache) return fcmTokenCache;
   if (!app || !auth?.currentUser) return undefined;
   try {
+    // Load the Messaging SDK on demand — keeps ~43K (gzip ~7K) out of the
+    // initial bundle for everyone who never enables push.
+    const { getMessaging, getToken, onMessage, isSupported: fcmSupported } = await import("firebase/messaging");
     if (!(await fcmSupported())) return undefined;
     const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
     if (!vapidKey) return undefined;

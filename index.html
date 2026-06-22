@@ -13,6 +13,13 @@
 <meta property="og:image" content="/assets/reichstag.jpeg" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Warm up the connections the app hits first (Firebase + map tiles) so the
+     first API/identify call doesn't pay full DNS+TLS handshake latency. -->
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://firebaseinstallations.googleapis.com" crossorigin>
+<link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com">
+<link rel="dns-prefetch" href="https://www.openstreetmap.org">
+<link rel="dns-prefetch" href="https://maps.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -387,9 +394,9 @@
       </div>
 
       <div class="collage" aria-hidden="true">
-        <div class="ph p1"><img src="/assets/reichstag.jpeg" alt=""></div>
-        <div class="ph p2"><img src="/assets/beach.jpeg" alt=""></div>
-        <div class="ph p3"><img src="/assets/waterfall.jpeg" alt=""></div>
+        <div class="ph p1"><img src="/assets/reichstag.jpeg" alt="" loading="lazy" decoding="async"></div>
+        <div class="ph p2"><img src="/assets/beach.jpeg" alt="" loading="lazy" decoding="async"></div>
+        <div class="ph p3"><img src="/assets/waterfall.jpeg" alt="" loading="lazy" decoding="async"></div>
         <div class="stamp">
           <span class="pin"></span>
           <div>
@@ -415,7 +422,7 @@
   <div class="shell">
     <div class="result-grid">
       <div class="photo-frame">
-        <img id="resultImg" src="/assets/reichstag.jpeg" alt="" />
+        <img id="resultImg" src="/assets/reichstag.jpeg" alt="" loading="lazy" decoding="async" />
         <div class="photo-meta">
           <div>
             <div style="opacity:.7">Identified from your photo</div>
