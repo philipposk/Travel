@@ -1309,12 +1309,20 @@ function paintItinerary(it: Itinerary) {
   body.innerHTML = "";
   body.insertAdjacentHTML("beforeend", `<p style="color:var(--ink-2);margin-bottom:18px">Total estimated cost: <strong>${it.currency} ${Math.round(it.totalEstimatedCost)}</strong></p>`);
   for (const day of it.days) {
-    const acts = day.activities.map((a) => `
+    const acts = day.activities.map((a) => {
+      // Always offer a verify link — AI itineraries frequently invent or
+      // mis-place venues, so let the user confirm each spot is real on a map.
+      // Prefer exact coords; otherwise search by name + destination.
+      const verifyHref = a.location
+        ? `https://www.google.com/maps/search/?api=1&query=${a.location.lat},${a.location.lon}`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${a.title} ${it.destination}`)}`;
+      return `
       <div class="act">
         <div class="t">${esc(a.time || "—")}</div>
-        <div class="info"><h6>${esc(a.title)}</h6><p>${esc(a.description)}${a.location ? ` <a href="https://www.google.com/maps/search/?api=1&query=${a.location.lat},${a.location.lon}" target="_blank" rel="noopener" style="color:var(--clay)">map</a>` : ""}</p></div>
+        <div class="info"><h6>${esc(a.title)}</h6><p>${esc(a.description)} <a href="${esc(safeUrl(verifyHref))}" target="_blank" rel="noopener" style="color:var(--clay)">verify on map →</a></p></div>
         <div class="cost">${a.estimatedCost ? `${esc(a.estimatedCost.currency)} ${Math.round(a.estimatedCost.amount)}` : ""}</div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
     body.insertAdjacentHTML("beforeend", `
       <div class="day">
         <h5>Day ${day.day} — ${esc(day.theme)}</h5>
