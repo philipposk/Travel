@@ -96,15 +96,25 @@ export async function aqicnByGeo(token: string, lat: number, lon: number): Promi
 }
 
 // ── Frankfurter: FX rates, no key ─────────────────────────────────────────
+// In-memory daily rate cache (per warm instance). ECB/Frankfurter rates change
+// once per business day, so repeat conversions need no network round-trip.
+const _fxCache = new Map<string, number>();
 export async function fxRate(from: string, to: string, amount = 1): Promise<{ rate: number; converted: number } | null> {
   // Fetch the unit rate, then multiply — avoids dividing by a zero/blank amount
   // (which would yield Infinity/NaN for the per-unit rate).
   const qty = Number(amount) > 0 ? Number(amount) : 1;
-  const res = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`);
-  if (!res.ok) return null;
-  const j = await res.json();
-  const rate = j.rates?.[to];
-  if (typeof rate !== "number") return null;
+  const day = new Date().toISOString().slice(0, 10);
+  const ck = `${from}|${to}|${day}`;
+  let rate = _fxCache.get(ck);
+  if (rate == null) {
+    const res = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`);
+    if (!res.ok) return null;
+    const j = await res.json();
+    const r = j.rates?.[to];
+    if (typeof r !== "number") return null;
+    rate = r;
+    _fxCache.set(ck, rate);
+  }
   return { rate, converted: rate * qty };
 }
 

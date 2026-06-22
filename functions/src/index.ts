@@ -70,6 +70,30 @@ function requireAuth(req: { auth?: { uid?: string } }): string {
   return req.auth.uid;
 }
 
+// ── Firestore TTL cache ───────────────────────────────────────────────────────
+// Memoizes expensive multi-API fan-outs so repeat lookups of the same place
+// don't re-hit Gemini / Geoapify / AQICN / VisaDB / Climatiq every time.
+// (Admin SDK bypasses security rules; clients can't read this collection.)
+// For auto-cleanup, add a Firestore TTL policy on the `expireAt` field of the
+// `intelCache` collection in the console — correctness doesn't depend on it.
+function cacheKey(s: string): string { return s.replace(/[^a-zA-Z0-9_|.-]/g, "_").slice(0, 480); }
+async function cacheGet<T>(coll: string, key: string): Promise<T | null> {
+  try {
+    const snap = await admin.firestore().collection(coll).doc(key).get();
+    if (!snap.exists) return null;
+    const d = snap.data() as { expireAt?: number; payload?: T };
+    if (!d.expireAt || d.expireAt < Date.now()) return null;
+    return (d.payload ?? null) as T | null;
+  } catch { return null; }
+}
+async function cacheSet(coll: string, key: string, payload: unknown, ttlMs: number): Promise<void> {
+  try {
+    await admin.firestore().collection(coll).doc(key).set({
+      payload, expireAt: Date.now() + ttlMs, cachedAt: Date.now(),
+    });
+  } catch { /* cache write failure is non-fatal */ }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // FLIGHTS — Duffel + Amadeus + Travelpayouts in parallel, normalized
 // ────────────────────────────────────────────────────────────────────────────
@@ -267,53 +291,35 @@ export const searchExperiences = onCall(
     const { location } = req.data;
     if (!location) throw new HttpsError("invalid-argument", "location required");
 
-    const results: unknown[] = [];
-    if (geoapifyKey.value()) {
-      const geo = await geoapifyGeocode(geoapifyKey.value(), location);
-      if (geo) {
-        const pois = await searchGeoapifyPlaces(
-          geoapifyKey.value(),
-          ["tourism.attraction", "entertainment.museum", "entertainment.activity_park"],
-          geo.lat, geo.lon, 10000, 40
-        );
-        results.push(...pois.map((p) => ({
-          id: `geoapify-${p.id}`,
-          name: p.name,
-          location: p.address,
-          price: 0,
-          currency: "USD",
-          duration: "",
-          rating: p.rating || 0,
-          category: p.category,
-          source: "geoapify",
-          url: p.website || "",
-        })));
-      }
-    }
-    if (opentripmapKey.value()) {
-      try {
-        // OpenTripMap needs coords; reuse geoapify geocode if available
-        const geo = geoapifyKey.value()
-          ? await geoapifyGeocode(geoapifyKey.value(), location)
-          : null;
-        if (geo) {
-          const otm = await searchOpenTripMap(opentripmapKey.value(), geo.lat, geo.lon);
-          results.push(...otm.map((p) => ({
-            id: `otm-${p.xid}`,
-            name: p.name,
-            location: "",
-            price: 0,
-            currency: "USD",
-            duration: "",
-            rating: p.rate,
-            category: p.kinds.split(",")[0],
-            source: "opentripmap",
-            url: `https://opentripmap.com/en/card/${p.xid}`,
-          })));
-        }
-      } catch (e) { logger.error("opentripmap", e); }
-    }
-    return { results };
+    // Geocode ONCE, then query both POI providers in parallel (was: geocode
+    // twice, run providers serially).
+    const geo = geoapifyKey.value() ? await geoapifyGeocode(geoapifyKey.value(), location) : null;
+    if (!geo) return { results: [] };
+
+    const [geoapify, otm] = await Promise.all([
+      geoapifyKey.value()
+        ? searchGeoapifyPlaces(
+            geoapifyKey.value(),
+            ["tourism.attraction", "entertainment.museum", "entertainment.activity_park"],
+            geo.lat, geo.lon, 10000, 40
+          ).then((pois) => pois.map((p) => ({
+            id: `geoapify-${p.id}`, name: p.name, location: p.address,
+            price: 0, currency: "USD", duration: "", rating: p.rating || 0,
+            category: p.category, source: "geoapify", url: p.website || "",
+          }))).catch((e) => { logger.error("geoapify-poi", e); return []; })
+        : Promise.resolve([]),
+      opentripmapKey.value()
+        ? searchOpenTripMap(opentripmapKey.value(), geo.lat, geo.lon)
+            .then((list) => list.map((p) => ({
+              id: `otm-${p.xid}`, name: p.name, location: "",
+              price: 0, currency: "USD", duration: "", rating: p.rate,
+              category: p.kinds.split(",")[0], source: "opentripmap",
+              url: `https://opentripmap.com/en/card/${p.xid}`,
+            }))).catch((e) => { logger.error("opentripmap", e); return []; })
+        : Promise.resolve([]),
+    ]);
+
+    return { results: [...geoapify, ...otm] };
   }
 );
 
@@ -384,6 +390,12 @@ export const getDestinationIntel = onCall(
     const { destination, passportCC, fromIata } = req.data;
     if (!destination) throw new HttpsError("invalid-argument", "destination required");
 
+    // Serve from cache when we've recently assembled this exact view. Weather is
+    // the most time-sensitive field, so the whole blob expires after 6h.
+    const key = cacheKey(`intel|${String(destination).toLowerCase()}|${passportCC || ""}|${fromIata || ""}`);
+    const cached = await cacheGet<Record<string, unknown>>("intelCache", key);
+    if (cached) return cached;
+
     let geo: { lat: number; lon: number; formatted: string; country: string; countryCode: string } | null = null;
     if (geoapifyKey.value()) geo = await geoapifyGeocode(geoapifyKey.value(), destination);
 
@@ -406,7 +418,7 @@ export const getDestinationIntel = onCall(
       geo ? openMeteoTimezone(geo.lat, geo.lon).catch(() => null) : Promise.resolve(null),
     ]);
 
-    return {
+    const result = {
       destination,
       geo,
       weather,
@@ -420,6 +432,10 @@ export const getDestinationIntel = onCall(
       carbon,
       timezone,
     };
+    // Only cache a useful result (skip empty geocode misses so a transient
+    // failure isn't pinned for 6h).
+    if (geo) await cacheSet("intelCache", key, result, 6 * 3600 * 1000);
+    return result;
   }
 );
 
