@@ -3,10 +3,20 @@
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { setGlobalOptions } from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as admin from "firebase-admin";
 import { defineString, defineSecret } from "firebase-functions/params";
+
+// One warm instance serves many concurrent requests → fewer cold starts and a
+// hard ceiling on runaway cost.
+setGlobalOptions({ concurrency: 80, memory: "512MiB", maxInstances: 10 });
+
+// Gemini model tiers. 2.5 Flash/Flash-Lite are current, cheaper and faster than
+// the now-legacy 1.5 line. Lite is used for the trivial JSON paths.
+const MODEL_FLASH = "gemini-2.5-flash";
+const MODEL_LITE = "gemini-2.5-flash-lite";
 
 import { searchDuffelFlights, createDuffelOrder } from "./lib/duffel";
 import { searchAmadeusFlights, searchAmadeusHotels, searchAmadeusCars } from "./lib/amadeus";
@@ -51,7 +61,10 @@ const airaloSecret = defineSecret("AIRALO_CLIENT_SECRET");
 const airaloRef = defineString("AIRALO_REF_CODE", { default: "" });
 const youtubeKey = defineSecret("YOUTUBE_API_KEY");
 
-function gemini(): GoogleGenerativeAI { return new GoogleGenerativeAI(geminiApiKey.value()); }
+// Memoized client — avoid re-constructing GoogleGenerativeAI on every call
+// (and on every email in the import loop).
+let _ai: GoogleGenerativeAI | null = null;
+function gemini(): GoogleGenerativeAI { return (_ai ??= new GoogleGenerativeAI(geminiApiKey.value())); }
 function requireAuth(req: { auth?: { uid?: string } }): string {
   if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Sign in required");
   return req.auth.uid;
@@ -722,7 +735,7 @@ export const getTravelAssistantResponse = onCall(
   async (req) => {
     requireAuth(req);
     const { locationQuery } = req.data;
-    const model = gemini().getGenerativeModel({ model: "gemini-1.5-pro" });
+    const model = gemini().getGenerativeModel({ model: MODEL_FLASH });
     const linksPrompt = `Provide official government website links for visas and tourist information for ${locationQuery}. Format as HTML <a> tags.`;
     const linksResult = await model.generateContent(linksPrompt);
     const essentialLinks = linksResult.response.text();
@@ -775,7 +788,10 @@ export const scrapeTravelIntelligence = onCall(
       } catch (e) { logger.error("youtube", e); }
     }
 
-    const model = gemini().getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = gemini().getGenerativeModel({
+      model: MODEL_FLASH,
+      generationConfig: { responseMimeType: "application/json" },
+    });
     const synthesisPrompt = `Synthesize travel info for ${location} from Reddit + YouTube:
 ${JSON.stringify((intelligence.reddit as unknown[]).slice(0, 5))}
 ${JSON.stringify((intelligence.youtube as unknown[]).slice(0, 5))}
@@ -800,7 +816,10 @@ export const identifyPlaceFromImage = onCall(
     requireAuth(req);
     const { imageBase64, mimeType, hint } = req.data;
     if (!imageBase64) throw new HttpsError("invalid-argument", "imageBase64 required");
-    const model = gemini().getGenerativeModel({ model: "gemini-1.5-pro" });
+    const model = gemini().getGenerativeModel({
+      model: MODEL_FLASH,
+      generationConfig: { responseMimeType: "application/json" },
+    });
     const prompt = `Identify this travel location. ${hint ? `Hint from user: "${hint}".` : ""}
 Return ONLY JSON, no markdown:
 {
@@ -840,7 +859,10 @@ export const identifyPlaceFromText = onCall(
     requireAuth(req);
     const { description } = req.data;
     if (!description) throw new HttpsError("invalid-argument", "description required");
-    const model = gemini().getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = gemini().getGenerativeModel({
+      model: MODEL_LITE,
+      generationConfig: { responseMimeType: "application/json" },
+    });
     const prompt = `User described a place: "${description}".
 Return ONLY JSON matching the schema below. If multiple matches plausible, pick the most likely:
 { "name": string, "shortMatch": string, "country": string, "countryCode": string,
@@ -868,7 +890,7 @@ export const chatWithAssistant = onCall(
     };
     if (!message) throw new HttpsError("invalid-argument", "message required");
     const model = gemini().getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: MODEL_FLASH,
       systemInstruction: `You are Atlas, a calm, concrete AI travel companion.
 Style: direct, no fluff, no emoji, never apologise. Use short sentences and bullet lists.
 You can: identify places, compare flight/hotel prices, look up visas & entry rules, plan
@@ -893,7 +915,10 @@ export const translatePhrase = onCall(
     requireAuth(req);
     const { text, target, context } = req.data;
     if (!text || !target) throw new HttpsError("invalid-argument", "text and target required");
-    const model = gemini().getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = gemini().getGenerativeModel({
+      model: MODEL_LITE,
+      generationConfig: { responseMimeType: "application/json" },
+    });
     const prompt = `Translate "${text}" into ${target}.
 ${context ? `Context: ${context}.` : ""}
 Return ONLY JSON:

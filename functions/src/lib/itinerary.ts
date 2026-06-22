@@ -122,7 +122,10 @@ Return ONLY valid JSON matching this TypeScript shape, no prose, no markdown fen
   ]
 }`;
 
-  const model = gemini.getGenerativeModel({ model: "gemini-1.5-pro" });
+  const model = gemini.getGenerativeModel({
+    model: "gemini-2.5-flash",
+    generationConfig: { responseMimeType: "application/json" },
+  });
   const result = await model.generateContent(prompt);
   const text = result.response.text();
   const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -174,7 +177,10 @@ export async function generatePackingList(
   weatherSummary: string,
   activities: string[]
 ): Promise<{ category: string; items: string[] }[]> {
-  const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = gemini.getGenerativeModel({
+    model: "gemini-2.5-flash-lite",
+    generationConfig: { responseMimeType: "application/json" },
+  });
   const prompt = `Generate a packing list for ${destination} from ${startDate} to ${endDate}.
 Weather: ${weatherSummary}
 Activities: ${activities.join(", ")}

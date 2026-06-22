@@ -115,7 +115,10 @@ JSON schema (fields you don't know → null):
 
 If not a travel booking, return: {"type":"other","provider":"","notes":"not a booking"}`;
 
-  const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = gemini.getGenerativeModel({
+    model: "gemini-2.5-flash-lite",
+    generationConfig: { responseMimeType: "application/json" },
+  });
   const result = await model.generateContent(prompt);
   const m = result.response.text().match(/\{[\s\S]*\}/);
   if (!m) return null;
