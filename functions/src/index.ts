@@ -39,6 +39,7 @@ import { listTravelMessages, getGmailMessage, parseBookingEmail } from "./lib/em
 import { computeBalances, minimalSettlements } from "./lib/groupTrips";
 import { evaluatePriceCheck, buildAlertPayload, type PriceWatch } from "./lib/priceWatch";
 import { enforceDailyLimit } from "./lib/rateLimit";
+import { checkAllProviders, recordAndDedupeAlerts, getOwnerFcmTokens } from "./lib/healthCheck";
 
 admin.initializeApp();
 
@@ -751,6 +752,70 @@ export const pollPriceWatches = onSchedule(
       } catch (e) {
         logger.error(`watch ${watch.id} failed`, e);
       }
+    }
+  }
+);
+
+// ────────────────────────────────────────────────────────────────────────────
+// THIRD-PARTY PROVIDER HEALTH CHECK — daily, alerts the owner on new failures
+// ────────────────────────────────────────────────────────────────────────────
+// The app fans out to 10 third-party APIs; several need manual key
+// renewal/approval (see WHAT_TO_DO_NEXT.md). A dead key today just makes the
+// affected feature quietly fall back to AI-simulated/demo data — nobody is
+// told. This pings each configured provider with the cheapest available
+// request once a day and pushes an FCM alert to the owner only on a NEW
+// failure (deduped/fingerprinted in Firestore so a known-broken provider
+// doesn't re-alert every day) or on recovery.
+export const checkProviderHealth = onSchedule(
+  {
+    schedule: "every 24 hours",
+    secrets: [
+      duffelToken, amadeusSecret, tpToken, geoapifyKey, opentripmapKey,
+      navitiaKey, aqicnToken, visadbKey, climatiqKey, airaloSecret,
+    ],
+  },
+  async () => {
+    const results = await checkAllProviders({
+      duffelToken: duffelToken.value(),
+      amadeusId: amadeusId.value(),
+      amadeusSecret: amadeusSecret.value(),
+      tpToken: tpToken.value(),
+      tpMarker: tpMarker.value(),
+      geoapifyKey: geoapifyKey.value(),
+      opentripmapKey: opentripmapKey.value(),
+      navitiaKey: navitiaKey.value(),
+      aqicnToken: aqicnToken.value(),
+      visadbKey: visadbKey.value(),
+      climatiqKey: climatiqKey.value(),
+      airaloId: airaloId.value(),
+      airaloSecret: airaloSecret.value(),
+    });
+
+    for (const r of results) {
+      if (r.status === "down") logger.error(`provider down: ${r.provider}`, { error: r.error });
+      else if (r.status === "ok") logger.info(`provider ok: ${r.provider}`);
+    }
+
+    const alerts = await recordAndDedupeAlerts(results);
+    if (!alerts.length) return;
+
+    const tokens = await getOwnerFcmTokens();
+    if (!tokens.length) {
+      logger.warn("provider health alert(s) pending but no owner FCM token registered", { alerts });
+      return;
+    }
+
+    for (const alert of alerts) {
+      const title = alert.kind === "recovered"
+        ? `${alert.provider} is back up`
+        : `${alert.provider} is down`;
+      const body = alert.kind === "recovered"
+        ? `Health check succeeded again after a prior failure.`
+        : `Health check failed: ${alert.error || "unknown error"}. Feature falls back to demo data until fixed.`;
+      await Promise.all(tokens.map((token) =>
+        admin.messaging().send({ token, notification: { title, body }, data: { provider: alert.provider, kind: alert.kind } })
+          .catch((e) => logger.warn("provider health push failed", token.slice(0, 12), e))
+      ));
     }
   }
 );
