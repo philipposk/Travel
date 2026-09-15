@@ -15,8 +15,9 @@
     "deploy:functions": "firebase deploy --only functions",
     "deploy:rules": "firebase deploy --only firestore:rules,storage:rules,firestore:indexes",
     "fn:build": "npm --prefix functions run build",
-    "fn:typecheck": "npm --prefix functions exec -- tsc --noEmit",
-    "fn:logs": "firebase functions:log"
+    "fn:typecheck": "npm --prefix functions run typecheck",
+    "fn:logs": "firebase functions:log",
+    "check-env": "node scripts/check-env.mjs"
   },
   "devDependencies": {
     "@types/google.maps": "^3.55.7",
