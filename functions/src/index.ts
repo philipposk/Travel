@@ -67,7 +67,9 @@ const youtubeKey = defineSecret("YOUTUBE_API_KEY");
 // (and on every email in the import loop).
 let _ai: GoogleGenerativeAI | null = null;
 function gemini(): GoogleGenerativeAI { return (_ai ??= new GoogleGenerativeAI(geminiApiKey.value())); }
-type AuthedRequest = { auth?: { uid?: string; token?: { firebase?: { sign_in_provider?: string } } } };
+type AuthedRequest = {
+  auth?: { uid?: string; token?: { firebase?: { sign_in_provider?: string }; admin?: boolean } };
+};
 
 /**
  * Confirms the caller is signed in (rejects otherwise). When `fnName` is
@@ -80,6 +82,19 @@ async function requireAuth(req: AuthedRequest, fnName?: string): Promise<string>
   if (fnName) {
     const isAnonymous = req.auth.token?.firebase?.sign_in_provider === "anonymous";
     await enforceDailyLimit(uid, isAnonymous, fnName);
+  }
+  return uid;
+}
+
+/**
+ * Confirms the caller is signed in AND carries the `admin: true` custom
+ * claim. Granting that claim is a one-time manual step (see PR description)
+ * — there is no self-service "become admin" flow.
+ */
+async function requireAdmin(req: AuthedRequest): Promise<string> {
+  const uid = await requireAuth(req);
+  if (req.auth?.token?.admin !== true) {
+    throw new HttpsError("permission-denied", "Admin access required");
   }
   return uid;
 }
@@ -1033,3 +1048,38 @@ export const getPoiDetails = onCall(
     return { details: await getOpenTripMapDetails(opentripmapKey.value(), xid) };
   }
 );
+
+// ────────────────────────────────────────────────────────────────────────────
+// ADMIN — aggregate usage counts for the ops dashboard (src/admin.ts)
+// ────────────────────────────────────────────────────────────────────────────
+export const getAdminStats = onCall(async (req) => {
+  await requireAdmin(req);
+  const db = admin.firestore();
+
+  // Firebase Auth is the real source of truth for "how many users" — most
+  // users/{uid} documents never get their own fields (only subcollections
+  // like trips/vault), so Firestore never lists them as a plain collection;
+  // a `users` collection read here would silently return zero.
+  let totalUsers = 0;
+  let anonymousUsers = 0;
+  let pageToken: string | undefined;
+  do {
+    const page = await admin.auth().listUsers(1000, pageToken);
+    totalUsers += page.users.length;
+    anonymousUsers += page.users.filter((u) => u.providerData.length === 0).length;
+    pageToken = page.pageToken;
+  } while (pageToken);
+
+  const [groupTrips, priceWatches, vaultDocs] = await Promise.all([
+    db.collection("groupTrips").count().get(),
+    db.collectionGroup("priceWatches").count().get(),
+    db.collectionGroup("vault").count().get(),
+  ]);
+
+  return {
+    users: { total: totalUsers, signedIn: totalUsers - anonymousUsers, anonymous: anonymousUsers },
+    groupTrips: groupTrips.data().count,
+    priceWatches: priceWatches.data().count,
+    vaultDocs: vaultDocs.data().count,
+  };
+});
