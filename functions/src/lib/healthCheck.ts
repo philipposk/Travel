@@ -39,8 +39,13 @@ async function probe(name: string, isConfigured: boolean, run: () => Promise<voi
   }
 }
 
+// Every probe request gets a hard timeout so a provider that accepts the TCP
+// connection but never responds can't hang the whole Promise.all(checks) —
+// without this, one stuck provider would block every other health result.
+const PROBE_TIMEOUT_MS = 8000;
+
 async function fetchOk(url: string, init?: RequestInit): Promise<void> {
-  const res = await fetch(url, init);
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -77,6 +82,7 @@ export async function checkAllProviders(s: HealthCheckSecrets): Promise<Provider
         body: new URLSearchParams({
           grant_type: "client_credentials", client_id: s.amadeusId, client_secret: s.amadeusSecret,
         }).toString(),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     }),
@@ -132,6 +138,7 @@ export async function checkAllProviders(s: HealthCheckSecrets): Promise<Provider
         body: new URLSearchParams({
           grant_type: "client_credentials", client_id: s.airaloId, client_secret: s.airaloSecret,
         }).toString(),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     }),
@@ -182,7 +189,10 @@ export async function recordAndDedupeAlerts(results: ProviderCheckResult[]): Pro
   const db = admin.firestore();
   const alerts: HealthAlert[] = [];
 
-  await Promise.all(results.map(async (result) => {
+  // Promise.allSettled (not Promise.all) — one provider's Firestore write
+  // failing must not discard the alerts already computed for every other
+  // provider in this run.
+  const outcomes = await Promise.allSettled(results.map(async (result) => {
     if (result.status === "unconfigured") return; // don't touch prior history
 
     const ref = db.doc(`providerHealth/${result.provider}`);
@@ -216,6 +226,12 @@ export async function recordAndDedupeAlerts(results: ProviderCheckResult[]): Pro
     }
     await ref.set(update, { merge: true });
   }));
+
+  for (const outcome of outcomes) {
+    if (outcome.status === "rejected") {
+      logger.error("recordAndDedupeAlerts: per-provider update failed", outcome.reason);
+    }
+  }
 
   return alerts;
 }

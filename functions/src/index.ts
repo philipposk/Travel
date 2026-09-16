@@ -784,53 +784,58 @@ export const pollPriceWatches = onSchedule(
 export const checkProviderHealth = onSchedule(
   {
     schedule: "every 24 hours",
+    timeoutSeconds: 120,
     secrets: [
       duffelToken, amadeusSecret, tpToken, geoapifyKey, opentripmapKey,
       navitiaKey, aqicnToken, visadbKey, climatiqKey, airaloSecret,
     ],
   },
   async () => {
-    const results = await checkAllProviders({
-      duffelToken: duffelToken.value(),
-      amadeusId: amadeusId.value(),
-      amadeusSecret: amadeusSecret.value(),
-      tpToken: tpToken.value(),
-      tpMarker: tpMarker.value(),
-      geoapifyKey: geoapifyKey.value(),
-      opentripmapKey: opentripmapKey.value(),
-      navitiaKey: navitiaKey.value(),
-      aqicnToken: aqicnToken.value(),
-      visadbKey: visadbKey.value(),
-      climatiqKey: climatiqKey.value(),
-      airaloId: airaloId.value(),
-      airaloSecret: airaloSecret.value(),
-    });
+    try {
+      const results = await checkAllProviders({
+        duffelToken: duffelToken.value(),
+        amadeusId: amadeusId.value(),
+        amadeusSecret: amadeusSecret.value(),
+        tpToken: tpToken.value(),
+        tpMarker: tpMarker.value(),
+        geoapifyKey: geoapifyKey.value(),
+        opentripmapKey: opentripmapKey.value(),
+        navitiaKey: navitiaKey.value(),
+        aqicnToken: aqicnToken.value(),
+        visadbKey: visadbKey.value(),
+        climatiqKey: climatiqKey.value(),
+        airaloId: airaloId.value(),
+        airaloSecret: airaloSecret.value(),
+      });
 
-    for (const r of results) {
-      if (r.status === "down") logger.error(`provider down: ${r.provider}`, { error: r.error });
-      else if (r.status === "ok") logger.info(`provider ok: ${r.provider}`);
-    }
+      for (const r of results) {
+        if (r.status === "down") logger.error(`provider down: ${r.provider}`, { error: r.error });
+        else if (r.status === "ok") logger.info(`provider ok: ${r.provider}`);
+      }
 
-    const alerts = await recordAndDedupeAlerts(results);
-    if (!alerts.length) return;
+      const alerts = await recordAndDedupeAlerts(results);
+      if (!alerts.length) return;
 
-    const tokens = await getOwnerFcmTokens();
-    if (!tokens.length) {
-      logger.warn("provider health alert(s) pending but no owner FCM token registered", { alerts });
-      return;
-    }
+      const tokens = await getOwnerFcmTokens();
+      if (!tokens.length) {
+        logger.warn("provider health alert(s) pending but no owner FCM token registered", { alerts });
+        return;
+      }
 
-    for (const alert of alerts) {
-      const title = alert.kind === "recovered"
-        ? `${alert.provider} is back up`
-        : `${alert.provider} is down`;
-      const body = alert.kind === "recovered"
-        ? `Health check succeeded again after a prior failure.`
-        : `Health check failed: ${alert.error || "unknown error"}. Feature falls back to demo data until fixed.`;
-      await Promise.all(tokens.map((token) =>
-        admin.messaging().send({ token, notification: { title, body }, data: { provider: alert.provider, kind: alert.kind } })
-          .catch((e) => logger.warn("provider health push failed", token.slice(0, 12), e))
-      ));
+      for (const alert of alerts) {
+        const title = alert.kind === "recovered"
+          ? `${alert.provider} is back up`
+          : `${alert.provider} is down`;
+        const body = alert.kind === "recovered"
+          ? `Health check succeeded again after a prior failure.`
+          : `Health check failed: ${alert.error || "unknown error"}. Feature falls back to demo data until fixed.`;
+        await Promise.all(tokens.map((token) =>
+          admin.messaging().send({ token, notification: { title, body }, data: { provider: alert.provider, kind: alert.kind } })
+            .catch((e) => logger.warn("provider health push failed", token.slice(0, 12), e))
+        ));
+      }
+    } catch (e) {
+      logger.error("checkProviderHealth: run failed", e);
     }
   }
 );
