@@ -37,6 +37,16 @@ export const DAILY_LIMITS: Record<string, { signedIn: number; anonymous: number 
   getDestinationIntel: { signedIn: 60, anonymous: 10 },
   getPoiDetails: { signedIn: 60, anonymous: 10 },
   listEsimPackages: { signedIn: 30, anonymous: 5 },
+  // Real billed third-party orders (Duffel/Airalo) — capped far tighter than
+  // read-only search, and closed to anonymous sessions entirely since a
+  // successful call spends real money against our provider balance.
+  createFlightOrder: { signedIn: 5, anonymous: 0 },
+  orderEsim: { signedIn: 5, anonymous: 0 },
+  // Loops up to 25 Gemini calls per invocation; also already effectively
+  // unusable by anonymous sessions (requires a verified Gmail address that
+  // matches the signed-in Firebase user's email), but capped at 0 explicitly
+  // rather than relying on that side effect.
+  importGmailBookings: { signedIn: 8, anonymous: 0 },
 };
 
 function todayKey(): string {

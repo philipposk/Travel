@@ -214,7 +214,7 @@ export const searchFlights = onCall(
 export const createFlightOrder = onCall(
   { secrets: [duffelToken] },
   async (req) => {
-    await requireAuth(req);
+    await requireAuth(req, "createFlightOrder");
     const { offerId, passengers } = req.data;
     if (!duffelToken.value()) throw new HttpsError("failed-precondition", "Duffel not configured");
     const result = await createDuffelOrder(duffelToken.value(), offerId, passengers);
@@ -506,7 +506,7 @@ export const generateAIPackingList = onCall(
 export const importGmailBookings = onCall(
   { secrets: [geminiApiKey] },
   async (req) => {
-    const uid = await requireAuth(req);
+    const uid = await requireAuth(req, "importGmailBookings");
     const { accessToken, query } = req.data;
     if (!accessToken) throw new HttpsError("invalid-argument", "accessToken required");
 
@@ -660,7 +660,7 @@ export const listEsimPackages = onCall(
 export const orderEsim = onCall(
   { secrets: [airaloSecret] },
   async (req) => {
-    await requireAuth(req);
+    await requireAuth(req, "orderEsim");
     const { packageId, quantity = 1, description = "" } = req.data;
     return await createAiraloOrder(airaloId.value(), airaloSecret.value(), packageId, quantity, description);
   }
