@@ -11,6 +11,7 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, type User,
 } from "firebase/auth";
 import { getFunctions, httpsCallable } from "firebase/functions";
+import { getFirestore, doc, setDoc } from "firebase/firestore";
 
 interface AdminStats {
   users: { total: number; signedIn: number; anonymous: number };
@@ -40,6 +41,34 @@ if (!firebaseConfig.apiKey) {
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const fn = getFunctions(app);
+  const db = getFirestore(app);
+
+  // ── FCM push registration ─────────────────────────────────────────────────
+  // Mirrors ensureFcmToken() in src/main.ts. Without this, an owner who only
+  // ever opens /admin.html never gets a users/{uid}/fcmTokens doc written, so
+  // getOwnerFcmTokens() in functions/src/lib/healthCheck.ts finds zero tokens
+  // and every provider-down alert silently has nowhere to go.
+  let fcmRegistered = false;
+  async function ensureFcmToken(user: User): Promise<void> {
+    if (fcmRegistered) return;
+    fcmRegistered = true;
+    try {
+      const { getMessaging, getToken, isSupported: fcmSupported } = await import("firebase/messaging");
+      if (!(await fcmSupported())) return;
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+      if (!vapidKey) return;
+      if (!("serviceWorker" in navigator)) return;
+      const reg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+      const messaging = getMessaging(app);
+      const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: reg });
+      if (!token) return;
+      await setDoc(doc(db, `users/${user.uid}/fcmTokens/${token.slice(0, 32)}`), {
+        token, createdAt: new Date().toISOString(), userAgent: navigator.userAgent,
+      });
+    } catch (e) {
+      console.warn("FCM init failed", e);
+    }
+  }
 
   function renderSignedOut(): void {
     render(`
@@ -98,7 +127,10 @@ if (!firebaseConfig.apiKey) {
     if (!user) { renderSignedOut(); return; }
     user.getIdTokenResult().then((tokenResult) => {
       if (tokenResult.claims.admin !== true) renderDenied(user);
-      else void renderStats(user);
+      else {
+        void ensureFcmToken(user);
+        void renderStats(user);
+      }
     });
   });
 }
