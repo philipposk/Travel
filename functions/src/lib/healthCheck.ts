@@ -13,7 +13,7 @@
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import { geoapifyGeocode } from "./geoapify";
-import { searchOpenTripMap } from "./opentripmap";
+import { OTM_BASE } from "./opentripmap";
 import { aqicnByGeo, visaRequirement } from "./intel";
 
 export interface ProviderCheckResult {
@@ -93,9 +93,13 @@ export async function checkAllProviders(s: HealthCheckSecrets): Promise<Provider
     }),
 
     // OpenTripMap: tiny-radius, limit-1 POI search around the probe point.
-    probe("opentripmap", !!s.opentripmapKey, async () => {
-      await searchOpenTripMap(s.opentripmapKey, PROBE_LAT, PROBE_LON, 500, "interesting_places", 1);
-    }),
+    // Uses a direct fetchOk() request (rather than searchOpenTripMap, whose
+    // `if (!res.ok) return []` is deliberate graceful-degradation for real
+    // search callers) so a 401/403/5xx here is actually visible as a failure
+    // instead of being silently read as "zero POIs nearby".
+    probe("opentripmap", !!s.opentripmapKey, () => fetchOk(
+      `${OTM_BASE}/places/radius?radius=500&lon=${PROBE_LON}&lat=${PROBE_LAT}&kinds=interesting_places&rate=2&format=json&limit=1&apikey=${s.opentripmapKey}`
+    )),
 
     // Navitia: /coverage lists supported regions — no from/to needed, so it
     // can't fail with a "no journey found" false negative like a real journey query.
