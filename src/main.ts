@@ -2311,6 +2311,20 @@ function initSheetClosers() {
   });
 }
 
+// ── PWA offline app shell ────────────────────────────────────────────────────
+// Registered unconditionally, independent of Firebase config, so a first-time
+// visitor on weak airport/hotel wifi gets a cached shell on their next load
+// instead of a blank page. (Push notifications remain opt-in and are wired
+// separately in ensureFcmToken — re-registering the same script URL there is
+// a harmless no-op that just reuses this registration.)
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/firebase-messaging-sw.js").catch((e) => {
+      console.warn("Service worker registration failed:", e);
+    });
+  });
+}
+
 // ── PWA install ──────────────────────────────────────────────────────────────
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
