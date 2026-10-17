@@ -2396,7 +2396,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initShortcuts();
   if (!functionsReady) {
     const badge = $("#heroBadge");
-    if (badge) badge.textContent = "Demo mode · backend not configured";
-    toast("Backend not configured — add VITE_FIREBASE_* keys to .env.local. UI runs in demo-only mode.", "err");
+    if (badge) badge.textContent = "Public pages only";
+    toast("Live trips need VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, and VITE_FIREBASE_APP_ID. Those keys are not configured, so this screen does not load a fake trip.", "err");
   }
 });
