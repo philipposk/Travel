@@ -2,7 +2,7 @@
 // Docs: https://dev.opentripmap.org/
 // Free tier with key.
 
-const OTM_BASE = "https://api.opentripmap.com/0.1/en";
+export const OTM_BASE = "https://api.opentripmap.com/0.1/en";
 
 export interface OTMPlace {
   xid: string;

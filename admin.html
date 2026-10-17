@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Atlas — Admin</title>
+  <link rel="icon" href="/assets/gemini.svg" />
+  <style>
+    :root{
+      --bg:#F6F1E7; --paper:#FBF8F1; --ink:#15140F; --ink-2:#3A372E; --muted:#7C7768;
+      --line:#E1D9C7; --clay:#B5532A; --clay-2:#8C3F1F;
+      --shadow: 0 1px 0 rgba(21,20,15,.04), 0 12px 30px -16px rgba(21,20,15,.18);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;
+      background:var(--bg);color:var(--ink);
+      font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Manrope,sans-serif;padding:40px 16px}
+    .card{width:100%;max-width:720px;background:var(--paper);border:1px solid var(--line);
+      border-radius:16px;box-shadow:var(--shadow);padding:28px}
+    h1{margin:0 0 4px;font-size:20px}
+    .muted{color:var(--muted);font-size:13px;margin:0 0 20px}
+    .err{color:#a3312a}
+    .head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .btn{appearance:none;border:1px solid var(--clay);background:var(--clay);color:#fff;
+      font:inherit;font-weight:600;padding:9px 16px;border-radius:10px;cursor:pointer}
+    .btn.ghost{background:transparent;color:var(--clay-2);border-color:var(--line)}
+    .btn:hover{filter:brightness(1.05)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:16px}
+    .stat{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px;text-align:center}
+    .stat .n{display:block;font-size:28px;font-weight:700;color:var(--clay-2)}
+    .stat .l{display:block;font-size:12px;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.04em}
+  </style>
+</head>
+<body>
+  <div id="app" class="card"><h1>Atlas admin</h1><p class="muted">Loading…</p></div>
+  <script type="module" src="/src/admin.ts"></script>
+</body>
+</html>

@@ -2311,6 +2311,20 @@ function initSheetClosers() {
   });
 }
 
+// ── PWA offline app shell ────────────────────────────────────────────────────
+// Registered unconditionally, independent of Firebase config, so a first-time
+// visitor on weak airport/hotel wifi gets a cached shell on their next load
+// instead of a blank page. (Push notifications remain opt-in and are wired
+// separately in ensureFcmToken — re-registering the same script URL there is
+// a harmless no-op that just reuses this registration.)
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/firebase-messaging-sw.js").catch((e) => {
+      console.warn("Service worker registration failed:", e);
+    });
+  });
+}
+
 // ── PWA install ──────────────────────────────────────────────────────────────
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -2382,7 +2396,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initShortcuts();
   if (!functionsReady) {
     const badge = $("#heroBadge");
-    if (badge) badge.textContent = "Demo mode · backend not configured";
-    toast("Backend not configured — add VITE_FIREBASE_* keys to .env.local. UI runs in demo-only mode.", "err");
+    if (badge) badge.textContent = "Public pages only";
+    toast("Live trips need VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, and VITE_FIREBASE_APP_ID. Those keys are not configured, so this screen does not load a fake trip.", "err");
   }
 });

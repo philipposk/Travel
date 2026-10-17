@@ -38,6 +38,8 @@ import { generateItinerary, generatePackingList } from "./lib/itinerary";
 import { listTravelMessages, getGmailMessage, parseBookingEmail } from "./lib/emailParser";
 import { computeBalances, minimalSettlements } from "./lib/groupTrips";
 import { evaluatePriceCheck, buildAlertPayload, type PriceWatch } from "./lib/priceWatch";
+import { enforceDailyLimit } from "./lib/rateLimit";
+import { checkAllProviders, recordAndDedupeAlerts, getOwnerFcmTokens } from "./lib/healthCheck";
 
 admin.initializeApp();
 
@@ -65,9 +67,36 @@ const youtubeKey = defineSecret("YOUTUBE_API_KEY");
 // (and on every email in the import loop).
 let _ai: GoogleGenerativeAI | null = null;
 function gemini(): GoogleGenerativeAI { return (_ai ??= new GoogleGenerativeAI(geminiApiKey.value())); }
-function requireAuth(req: { auth?: { uid?: string } }): string {
+type AuthedRequest = {
+  auth?: { uid?: string; token?: { firebase?: { sign_in_provider?: string }; admin?: boolean } };
+};
+
+/**
+ * Confirms the caller is signed in (rejects otherwise). When `fnName` is
+ * given, also atomically enforces that function's daily per-uid call cap
+ * (lower for anonymous sessions) — see lib/rateLimit.ts. Always await this.
+ */
+async function requireAuth(req: AuthedRequest, fnName?: string): Promise<string> {
   if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Sign in required");
-  return req.auth.uid;
+  const uid = req.auth.uid;
+  if (fnName) {
+    const isAnonymous = req.auth.token?.firebase?.sign_in_provider === "anonymous";
+    await enforceDailyLimit(uid, isAnonymous, fnName);
+  }
+  return uid;
+}
+
+/**
+ * Confirms the caller is signed in AND carries the `admin: true` custom
+ * claim. Granting that claim is a one-time manual step (see PR description)
+ * — there is no self-service "become admin" flow.
+ */
+async function requireAdmin(req: AuthedRequest): Promise<string> {
+  const uid = await requireAuth(req);
+  if (req.auth?.token?.admin !== true) {
+    throw new HttpsError("permission-denied", "Admin access required");
+  }
+  return uid;
 }
 
 // ── Firestore TTL cache ───────────────────────────────────────────────────────
@@ -100,7 +129,7 @@ async function cacheSet(coll: string, key: string, payload: unknown, ttlMs: numb
 export const searchFlights = onCall(
   { secrets: [duffelToken, amadeusSecret, tpToken] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "searchFlights");
     const { from, to, date, passengers = 1, cabinClass = "economy" } = req.data;
     if (!from || !to || !date) throw new HttpsError("invalid-argument", "from, to, date required");
 
@@ -185,7 +214,7 @@ export const searchFlights = onCall(
 export const createFlightOrder = onCall(
   { secrets: [duffelToken] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "createFlightOrder");
     const { offerId, passengers } = req.data;
     if (!duffelToken.value()) throw new HttpsError("failed-precondition", "Duffel not configured");
     const result = await createDuffelOrder(duffelToken.value(), offerId, passengers);
@@ -203,7 +232,7 @@ export const createFlightOrder = onCall(
 export const searchHotels = onCall(
   { secrets: [amadeusSecret, makcorpsKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "searchHotels");
     const { location, checkIn, checkOut, guests = 2, cityCode } = req.data;
     if (!checkIn || !checkOut) throw new HttpsError("invalid-argument", "checkIn/checkOut required");
 
@@ -287,7 +316,7 @@ export const searchHotels = onCall(
 export const searchExperiences = onCall(
   { secrets: [geoapifyKey, opentripmapKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "searchExperiences");
     const { location } = req.data;
     if (!location) throw new HttpsError("invalid-argument", "location required");
 
@@ -329,7 +358,7 @@ export const searchExperiences = onCall(
 export const searchTransit = onCall(
   { secrets: [navitiaKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "searchTransit");
     const { fromLat, fromLon, toLat, toLon, departAt } = req.data;
     if (
       typeof fromLat !== "number" || typeof fromLon !== "number" ||
@@ -386,7 +415,7 @@ export const searchTransit = onCall(
 export const getDestinationIntel = onCall(
   { secrets: [geoapifyKey, aqicnToken, visadbKey, climatiqKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "getDestinationIntel");
     const { destination, passportCC, fromIata } = req.data;
     if (!destination) throw new HttpsError("invalid-argument", "destination required");
 
@@ -453,10 +482,9 @@ export const convertCurrency = onCall(async (req) => {
 export const generateAIItinerary = onCall(
   { secrets: [geminiApiKey, geoapifyKey] },
   async (req) => {
-    requireAuth(req);
+    const uid = await requireAuth(req, "generateAIItinerary");
     const it = await generateItinerary(gemini(), geoapifyKey.value(), req.data);
     // Persist to Firestore for the user
-    const uid = req.auth!.uid;
     const id = admin.firestore().collection(`users/${uid}/itineraries`).doc().id;
     await admin.firestore().doc(`users/${uid}/itineraries/${id}`).set({ id, ...it });
     return { id, ...it };
@@ -466,7 +494,7 @@ export const generateAIItinerary = onCall(
 export const generateAIPackingList = onCall(
   { secrets: [geminiApiKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "generateAIPackingList");
     const { destination, startDate, endDate, weatherSummary, activities } = req.data;
     return { list: await generatePackingList(gemini(), destination, startDate, endDate, weatherSummary, activities) };
   }
@@ -478,7 +506,7 @@ export const generateAIPackingList = onCall(
 export const importGmailBookings = onCall(
   { secrets: [geminiApiKey] },
   async (req) => {
-    const uid = requireAuth(req);
+    const uid = await requireAuth(req, "importGmailBookings");
     const { accessToken, query } = req.data;
     if (!accessToken) throw new HttpsError("invalid-argument", "accessToken required");
 
@@ -526,7 +554,7 @@ export const importGmailBookings = onCall(
 // GROUP TRIPS
 // ────────────────────────────────────────────────────────────────────────────
 export const createGroupTrip = onCall(async (req) => {
-  const uid = requireAuth(req);
+  const uid = await requireAuth(req);
   const { name, destination, startDate, endDate, baseCurrency = "USD" } = req.data;
   const id = admin.firestore().collection("groupTrips").doc().id;
   const userRec = await admin.auth().getUser(uid);
@@ -546,7 +574,7 @@ export const createGroupTrip = onCall(async (req) => {
 });
 
 export const inviteToGroupTrip = onCall(async (req) => {
-  const uid = requireAuth(req);
+  const uid = await requireAuth(req);
   const { tripId, email, role = "editor" } = req.data;
   const ref = admin.firestore().doc(`groupTrips/${tripId}`);
   const snap = await ref.get();
@@ -563,7 +591,7 @@ export const inviteToGroupTrip = onCall(async (req) => {
 });
 
 export const addGroupExpense = onCall(async (req) => {
-  const uid = requireAuth(req);
+  const uid = await requireAuth(req);
   const { tripId, description, amount, currency = "USD", splitMethod = "equal", splits, category, date } = req.data;
   if (!tripId || !description || !amount) throw new HttpsError("invalid-argument", "tripId, description, amount required");
   const tripSnap = await admin.firestore().doc(`groupTrips/${tripId}`).get();
@@ -598,7 +626,7 @@ export const addGroupExpense = onCall(async (req) => {
 });
 
 export const settleUpGroupTrip = onCall(async (req) => {
-  requireAuth(req);
+  await requireAuth(req);
   const { tripId } = req.data;
   const tripSnap = await admin.firestore().doc(`groupTrips/${tripId}`).get();
   if (!tripSnap.exists) throw new HttpsError("not-found", "Trip not found");
@@ -616,7 +644,7 @@ export const settleUpGroupTrip = onCall(async (req) => {
 export const listEsimPackages = onCall(
   { secrets: [airaloSecret] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "listEsimPackages");
     const { countryCode } = req.data;
     if (!countryCode) throw new HttpsError("invalid-argument", "countryCode required");
     if (airaloId.value() && airaloSecret.value()) {
@@ -632,7 +660,7 @@ export const listEsimPackages = onCall(
 export const orderEsim = onCall(
   { secrets: [airaloSecret] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "orderEsim");
     const { packageId, quantity = 1, description = "" } = req.data;
     return await createAiraloOrder(airaloId.value(), airaloSecret.value(), packageId, quantity, description);
   }
@@ -644,7 +672,7 @@ export const orderEsim = onCall(
 export const searchCars = onCall(
   { secrets: [amadeusSecret] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "searchCars");
     const { pickupCode, pickupDate, dropoffDate } = req.data;
     if (!amadeusId.value() || !amadeusSecret.value()) return { results: [] };
     const data = await searchAmadeusCars(amadeusId.value(), amadeusSecret.value(), pickupCode, pickupDate, dropoffDate);
@@ -656,7 +684,7 @@ export const searchCars = onCall(
 // PRICE WATCHLIST
 // ────────────────────────────────────────────────────────────────────────────
 export const createPriceWatch = onCall(async (req) => {
-  const uid = requireAuth(req);
+  const uid = await requireAuth(req);
   const id = admin.firestore().collection(`users/${uid}/priceWatches`).doc().id;
   const watch: PriceWatch = {
     id, uid, active: true, history: [],
@@ -670,7 +698,7 @@ export const createPriceWatch = onCall(async (req) => {
 });
 
 export const deletePriceWatch = onCall(async (req) => {
-  const uid = requireAuth(req);
+  const uid = await requireAuth(req);
   await admin.firestore().doc(`users/${uid}/priceWatches/${req.data.id}`).delete();
   return { ok: true };
 });
@@ -744,12 +772,81 @@ export const pollPriceWatches = onSchedule(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// THIRD-PARTY PROVIDER HEALTH CHECK — daily, alerts the owner on new failures
+// ────────────────────────────────────────────────────────────────────────────
+// The app fans out to 10 third-party APIs; several need manual key
+// renewal/approval (see WHAT_TO_DO_NEXT.md). A dead key today just makes the
+// affected feature quietly fall back to AI-simulated/demo data — nobody is
+// told. This pings each configured provider with the cheapest available
+// request once a day and pushes an FCM alert to the owner only on a NEW
+// failure (deduped/fingerprinted in Firestore so a known-broken provider
+// doesn't re-alert every day) or on recovery.
+export const checkProviderHealth = onSchedule(
+  {
+    schedule: "every 24 hours",
+    timeoutSeconds: 120,
+    secrets: [
+      duffelToken, amadeusSecret, tpToken, geoapifyKey, opentripmapKey,
+      navitiaKey, aqicnToken, visadbKey, climatiqKey, airaloSecret,
+    ],
+  },
+  async () => {
+    try {
+      const results = await checkAllProviders({
+        duffelToken: duffelToken.value(),
+        amadeusId: amadeusId.value(),
+        amadeusSecret: amadeusSecret.value(),
+        tpToken: tpToken.value(),
+        tpMarker: tpMarker.value(),
+        geoapifyKey: geoapifyKey.value(),
+        opentripmapKey: opentripmapKey.value(),
+        navitiaKey: navitiaKey.value(),
+        aqicnToken: aqicnToken.value(),
+        visadbKey: visadbKey.value(),
+        climatiqKey: climatiqKey.value(),
+        airaloId: airaloId.value(),
+        airaloSecret: airaloSecret.value(),
+      });
+
+      for (const r of results) {
+        if (r.status === "down") logger.error(`provider down: ${r.provider}`, { error: r.error });
+        else if (r.status === "ok") logger.info(`provider ok: ${r.provider}`);
+      }
+
+      const alerts = await recordAndDedupeAlerts(results);
+      if (!alerts.length) return;
+
+      const tokens = await getOwnerFcmTokens();
+      if (!tokens.length) {
+        logger.warn("provider health alert(s) pending but no owner FCM token registered", { alerts });
+        return;
+      }
+
+      for (const alert of alerts) {
+        const title = alert.kind === "recovered"
+          ? `${alert.provider} is back up`
+          : `${alert.provider} is down`;
+        const body = alert.kind === "recovered"
+          ? `Health check succeeded again after a prior failure.`
+          : `Health check failed: ${alert.error || "unknown error"}. Feature falls back to demo data until fixed.`;
+        await Promise.all(tokens.map((token) =>
+          admin.messaging().send({ token, notification: { title, body }, data: { provider: alert.provider, kind: alert.kind } })
+            .catch((e) => logger.warn("provider health push failed", token.slice(0, 12), e))
+        ));
+      }
+    } catch (e) {
+      logger.error("checkProviderHealth: run failed", e);
+    }
+  }
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // LEGACY — preserved for existing UI
 // ────────────────────────────────────────────────────────────────────────────
 export const getTravelAssistantResponse = onCall(
   { secrets: [geminiApiKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "getTravelAssistantResponse");
     const { locationQuery } = req.data;
     const model = gemini().getGenerativeModel({ model: MODEL_FLASH });
     const linksPrompt = `Provide official government website links for visas and tourist information for ${locationQuery}. Format as HTML <a> tags.`;
@@ -777,7 +874,7 @@ export const getTravelAssistantResponse = onCall(
 export const scrapeTravelIntelligence = onCall(
   { secrets: [geminiApiKey, youtubeKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "scrapeTravelIntelligence");
     const { location, sources } = req.data;
     const intelligence: Record<string, unknown> = { location, reddit: [], youtube: [], scrapedAt: new Date().toISOString() };
 
@@ -829,7 +926,7 @@ Return JSON: { scams, transportation, simCards, currency, culture, safety }`;
 export const identifyPlaceFromImage = onCall(
   { secrets: [geminiApiKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "identifyPlaceFromImage");
     const { imageBase64, mimeType, hint } = req.data;
     if (!imageBase64) throw new HttpsError("invalid-argument", "imageBase64 required");
     const model = gemini().getGenerativeModel({
@@ -872,7 +969,7 @@ If you cannot recognise it confidently, set confidence < 40 and best guess count
 export const identifyPlaceFromText = onCall(
   { secrets: [geminiApiKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "identifyPlaceFromText");
     const { description } = req.data;
     if (!description) throw new HttpsError("invalid-argument", "description required");
     const model = gemini().getGenerativeModel({
@@ -898,7 +995,7 @@ Return ONLY JSON matching the schema below. If multiple matches plausible, pick 
 export const chatWithAssistant = onCall(
   { secrets: [geminiApiKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "chatWithAssistant");
     const { history, message, context } = req.data as {
       history?: Array<{ role: "user" | "model"; text: string }>;
       message: string;
@@ -928,7 +1025,7 @@ Keep replies under 120 words unless asked for detail.`,
 export const translatePhrase = onCall(
   { secrets: [geminiApiKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "translatePhrase");
     const { text, target, context } = req.data;
     if (!text || !target) throw new HttpsError("invalid-argument", "text and target required");
     const model = gemini().getGenerativeModel({
@@ -950,9 +1047,44 @@ Return ONLY JSON:
 export const getPoiDetails = onCall(
   { secrets: [opentripmapKey] },
   async (req) => {
-    requireAuth(req);
+    await requireAuth(req, "getPoiDetails");
     const { xid } = req.data;
     if (!opentripmapKey.value()) return { details: null };
     return { details: await getOpenTripMapDetails(opentripmapKey.value(), xid) };
   }
 );
+
+// ────────────────────────────────────────────────────────────────────────────
+// ADMIN — aggregate usage counts for the ops dashboard (src/admin.ts)
+// ────────────────────────────────────────────────────────────────────────────
+export const getAdminStats = onCall(async (req) => {
+  await requireAdmin(req);
+  const db = admin.firestore();
+
+  // Firebase Auth is the real source of truth for "how many users" — most
+  // users/{uid} documents never get their own fields (only subcollections
+  // like trips/vault), so Firestore never lists them as a plain collection;
+  // a `users` collection read here would silently return zero.
+  let totalUsers = 0;
+  let anonymousUsers = 0;
+  let pageToken: string | undefined;
+  do {
+    const page = await admin.auth().listUsers(1000, pageToken);
+    totalUsers += page.users.length;
+    anonymousUsers += page.users.filter((u) => u.providerData.length === 0).length;
+    pageToken = page.pageToken;
+  } while (pageToken);
+
+  const [groupTrips, priceWatches, vaultDocs] = await Promise.all([
+    db.collection("groupTrips").count().get(),
+    db.collectionGroup("priceWatches").count().get(),
+    db.collectionGroup("vault").count().get(),
+  ]);
+
+  return {
+    users: { total: totalUsers, signedIn: totalUsers - anonymousUsers, anonymous: anonymousUsers },
+    groupTrips: groupTrips.data().count,
+    priceWatches: priceWatches.data().count,
+    vaultDocs: vaultDocs.data().count,
+  };
+});
