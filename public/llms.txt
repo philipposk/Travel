@@ -1,0 +1,17 @@
+# Atlas
+
+> Atlas (travel.6x7.gr) is a free web app, an AI travel companion by 6x7. Show it a photo and it identifies the place, then helps plan the whole trip.
+
+## What it does
+- Identify a place from a photo and get an itinerary for it
+- Compare flights and bookings
+- Visa and entry requirements by passport and destination
+- Airport guides (gates, transfers, lounges)
+- Live phrase translation
+- Local tips and common scams to avoid
+- A private document vault and trip journal (sign-in required)
+
+## Links
+- [Atlas](https://travel.6x7.gr/)
+- [Source code](https://github.com/philipposk/Travel)
+- [6x7](https://6x7.gr/), [all 6x7 apps](https://portfolio.6x7.gr/)
